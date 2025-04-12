@@ -1,0 +1,16 @@
+# Node.js
+node_modules
+npm-debug.log
+.env
+
+# Docker
+Dockerfile
+docker-compose.yml
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Others
+dist
+.cache
