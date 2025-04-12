@@ -1,0 +1,11 @@
+version: "3.8"
+
+services:
+  internal-service:
+    image: ghcr.io/gaolamthuy/gaolamthuy-internal-service:latest
+    container_name: gaolamthuy-internal-service
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - .env
