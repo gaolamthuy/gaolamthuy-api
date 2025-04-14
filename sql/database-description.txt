@@ -1,0 +1,369 @@
+####################
+## product list http request
+curl --location 'https://public.kiotapi.com/products?pageSize=100&includeInventory=true&includePricebook=true' \
+--header 'Retailer: gaolamthuy' \
+--header 'Authorization: Bearer {token}' \
+## product list api response sample
+{
+    "total": 67,
+    "pageSize": 100,
+    "data": [
+        {
+            "createdDate": "2020-08-22T08:40:34.0970000",
+            "id": 3065552,
+            "retailerId": 744514,
+            "code": "2021101",
+            "barCode": "",
+            "name": "504",
+            "fullName": "504 - Tiêu chuẩn (kg)",
+            "categoryId": 132086,
+            "categoryName": "Gạo nở",
+            "allowsSale": true,
+            "type": 2,
+            "hasVariants": true,
+            "basePrice": 16500.000000,
+            "weight": 1000,
+            "unit": "kg",
+            "conversionValue": 1,
+            "description": "",
+            "modifiedDate": "2025-03-19T17:58:36.4470000",
+            "isActive": true,
+            "orderTemplate": "Gạo tròn hè 2024",
+            "isLotSerialControl": false,
+            "isBatchExpireControl": false,
+            "attributes": [
+                {
+                    "productId": 3065552,
+                    "attributeName": "PHÂN LOẠI",
+                    "attributeValue": "Tiêu chuẩn"
+                }
+            ],
+            "inventories": [
+                {
+                    "productId": 3065552,
+                    "productCode": "2021101",
+                    "productName": "504",
+                    "branchId": 15132,
+                    "branchName": "Gạo Lâm Thúy",
+                    "cost": 14300.0000000000,
+                    "onHand": -1501.539,
+                    "reserved": 0,
+                    "actualReserved": 0,
+                    "minQuantity": 0,
+                    "maxQuantity": 0,
+                    "isActive": true,
+                    "onOrder": 0
+                }
+            ],
+            "images": [
+                "https://cdn2-retail-images.kiotviet.vn/2024/10/11/gaolamthuy/aedbca4a98fd4fd3948e88a9019e8c5c.jpg"
+            ]
+        },
+        {
+            "createdDate": "2020-08-22T08:40:34.1130000",
+            "id": 3065553,
+            "retailerId": 744514,
+            "code": "2022101",
+            "barCode": "",
+            "name": "504",
+            "fullName": "504 - Lở (kg)",
+            "categoryId": 132086,
+            "categoryName": "Gạo nở",
+            "allowsSale": true,
+            "type": 2,
+            "hasVariants": true,
+            "basePrice": 18000.000000,
+            "weight": 1000,
+            "unit": "kg",
+            "masterProductId": 3065552,
+            "conversionValue": 1,
+            "description": "",
+            "modifiedDate": "2025-03-19T17:58:36.4570000",
+            "isActive": true,
+            "orderTemplate": "Gạo Ấn Swarna mộc cũ 9 tháng 10% tấm",
+            "isLotSerialControl": false,
+            "isBatchExpireControl": false,
+            "attributes": [
+                {
+                    "productId": 3065553,
+                    "attributeName": "PHÂN LOẠI",
+                    "attributeValue": "Lở"
+                }
+            ],
+            "inventories": [
+                {
+                    "productId": 3065553,
+                    "productCode": "2022101",
+                    "productName": "504",
+                    "branchId": 15132,
+                    "branchName": "Gạo Lâm Thúy",
+                    "cost": 15400.0000000000,
+                    "onHand": -3064.72,
+                    "reserved": 0,
+                    "actualReserved": 0,
+                    "minQuantity": 0,
+                    "maxQuantity": 0,
+                    "isActive": true,
+                    "onOrder": 0
+                }
+            ],
+            "images": [
+                "https://cdn2-retail-images.kiotviet.vn/2024/10/11/gaolamthuy/b3410408bad64282b86b6565bb954918.jpg"
+            ]
+        },...
+		]
+}
+## product list table definition
+create table public.kiotviet_products (
+  id bigint not null,
+  retailer_id bigint null,
+  code character varying(255) null,
+  bar_code character varying(255) null,
+  name character varying(255) null,
+  full_name character varying(255) null,
+  category_id bigint null,
+  category_name character varying(255) null,
+  allows_sale boolean null,
+  type integer null,
+  has_variants boolean null,
+  base_price numeric(20, 6) null,
+  weight numeric(20, 6) null,
+  unit character varying(255) null,
+  master_product_id bigint null,
+  master_unit_id bigint null,
+  conversion_value integer null,
+  description text null,
+  modified_date timestamp without time zone null,
+  created_date timestamp without time zone null,
+  is_active boolean null,
+  order_template character varying(255) null,
+  is_lot_serial_control boolean null,
+  is_batch_expire_control boolean null,
+  trade_mark_name character varying(255) null,
+  trade_mark_id bigint null,
+  images text[] null,
+  constraint kiotviet_products_pkey primary key (id),
+  constraint unique_kiotviet_id unique (id)
+) TABLESPACE pg_default;
+
+create index IF not exists idx_product_category on public.kiotviet_products using btree (category_id) TABLESPACE pg_default;
+## product list data sample
+id,retailer_id,code,bar_code,name,full_name,category_id,category_name,allows_sale,type,has_variants,base_price,weight,unit,master_product_id,master_unit_id,conversion_value,description,modified_date,created_date,is_active,order_template,is_lot_serial_control,is_batch_expire_control,trade_mark_name,trade_mark_id,images
+3065552,744514,2021101,,504,504 - Tiêu chuẩn (kg),132086,Gạo nở,true,2,true,16500.000000,1000.000000,kg,,,1,,2025-03-19 17:58:36.447,2020-08-22 08:40:34.097,true,Gạo tròn hè 2024,false,false,,,"[""https://cdn2-retail-images.kiotviet.vn/2024/10/11/gaolamthuy/aedbca4a98fd4fd3948e88a9019e8c5c.jpg""]"
+3065553,744514,2022101,,504,504 - Lở (kg),132086,Gạo nở,true,2,true,18000.000000,1000.000000,kg,3065552,,1,,2025-03-19 17:58:36.457,2020-08-22 08:40:34.113,true,Gạo Ấn Swarna mộc cũ 9 tháng 10% tấm,false,false,,,"[""https://cdn2-retail-images.kiotviet.vn/2024/10/11/gaolamthuy/b3410408bad64282b86b6565bb954918.jpg""]"
+3299734,744514,2021102,,Gạo Ấn Swarna,Gạo Ấn Swarna (kg),132086,Gạo nở,true,2,false,17000.000000,1000.000000,kg,,,1,,2025-03-19 17:58:36.447,2020-08-24 07:20:18.277,true,Gạo trắng ấn Swarna lở 9 tháng,false,false,,,"[""https://cdn2-retail-images.kiotviet.vn/2024/10/11/gaolamthuy/cb97196f5e6443a282868ef8368a5524.jpg""]"
+
+
+
+####################
+## invoice list http request
+curl --location 'https://public.kiotapi.com/invoices?includePayment=true&pageSize=100&fromPurchaseDate=2025-01-01T10%3A47%3A15.9900000&toPurchaseDate=2025-04-13T10%3A47%3A15.9900000' \
+--header 'Retailer: gaolamthuy' \
+--header 'Authorization: Bearer {token}' \
+## api response sample, this is for 2025 only, datetime has been not formatted in standard, need Cursor AI help 
+{
+    "total": 3051,
+    "pageSize": 100,
+    "data": [
+        {
+            "id": 122011346,
+            "uuid": "WN6bcd775b-cc44-40c5-840a-689040f59fd2",
+            "code": "HD056988",
+            "purchaseDate": "2025-04-13T12:05:58.2870000",
+            "branchId": 15132,
+            "branchName": "Gạo Lâm Thúy",
+            "soldById": 59020,
+            "soldByName": "23 NĐC",
+            "customerCode": "",
+            "customerName": "",
+            "orderCode": "",
+            "total": 26000.0000,
+            "totalPayment": 26000.0000,
+            "status": 1,
+            "statusValue": "Hoàn thành",
+            "usingCod": false,
+            "createdDate": "2025-04-13T12:05:58.3030000",
+            "invoiceDetails": [
+                {
+                    "productId": 3749604,
+                    "productCode": "2061101",
+                    "productName": "Lúa tròn",
+                    "categoryId": 178627,
+                    "categoryName": "Lúa - Gạo Lứt",
+                    "quantity": 2,
+                    "price": 13000.00,
+                    "discount": 0.0000,
+                    "subTotal": 26000.0000,
+                    "note": "Lúa gà việt dài",
+                    "serialNumbers": "",
+                    "returnQuantity": 0
+                }
+            ],
+            "payments": [
+                {
+                    "id": 114335999,
+                    "code": "TTHD056988",
+                    "amount": 26000.0000,
+                    "method": "Cash",
+                    "status": 0,
+                    "statusValue": "Đã thanh toán",
+                    "transDate": "2025-04-13T12:05:58.2930000"
+                }
+            ]
+        },
+        {
+            "id": 121997908,
+            "uuid": "WN523e1375-283a-4b25-a9ee-ae564c11d6e5",
+            "code": "HD056987",
+            "purchaseDate": "2025-04-13T10:47:15.9900000",
+            "branchId": 15132,
+            "branchName": "Gạo Lâm Thúy",
+            "soldById": 59020,
+            "soldByName": "23 NĐC",
+            "customerId": 698643,
+            "customerCode": "co my lan",
+            "customerName": "Cô Mỹ Lan 26 NĐC",
+            "orderCode": "",
+            "total": 265000.0000,
+            "totalPayment": 265000.0000,
+            "status": 1,
+            "statusValue": "Hoàn thành",
+            "usingCod": false,
+            "createdDate": "2025-04-13T10:47:15.9970000",
+            "invoiceDetails": [
+                {
+                    "productId": 3749581,
+                    "productCode": "2011108",
+                    "productName": "ST25",
+                    "categoryId": 133275,
+                    "categoryName": "Gạo dẻo",
+                    "quantity": 10,
+                    "price": 27500.00,
+                    "discount": 1000.0000,
+                    "subTotal": 265000.0000,
+                    "note": "ST25 đông xuân 25",
+                    "serialNumbers": "",
+                    "returnQuantity": 0
+                }
+            ],
+            "payments": [
+                {
+                    "id": 114323258,
+                    "code": "TTHD056987",
+                    "amount": 265000.0000,
+                    "method": "Cash",
+                    "status": 0,
+                    "statusValue": "Đã thanh toán",
+                    "transDate": "2025-04-13T10:47:15.9970000"
+                }
+            ]
+        },...
+		]
+}
+## sql definition 
+create table public.kiotviet_invoices (
+  id bigserial not null,
+  code text null,
+  purchase_date timestamp without time zone null,
+  branch_id bigint null,
+  branch_name text null,
+  sold_by_id bigint null,
+  sold_by_name text null,
+  customer_id bigint null,
+  customer_code text null,
+  customer_name text null,
+  order_code text null,
+  total numeric(12, 4) null,
+  total_payment numeric(12, 4) null,
+  status integer null,
+  status_value text null,
+  using_cod boolean null,
+  created_date timestamp without time zone null,
+  uuid uuid null,
+  constraint kiotviet_invoices_pkey primary key (id),
+  constraint kiotviet_invoices_customer_id_fkey foreign KEY (customer_id) references kiotviet_customers (id)
+) TABLESPACE pg_default;
+
+create index IF not exists idx_kiotviet_invoices_purchase_date on public.kiotviet_invoices using btree (purchase_date) TABLESPACE pg_default;
+## data sample: no data yet
+
+
+
+####################
+## customers list, I think this is good for now, data and tables 
+## http request sample
+curl --location 'https://public.kiotapi.com/customers?pageSize=100&includeCustomerGroup=true&currentItem=0' \
+--header 'Retailer: gaolamthuy' \
+--header 'Authorization: Bearer {token}' \
+## api response sample
+{
+    "total": 1272,
+    "pageSize": 100,
+    "data": [
+        {
+            "id": 698670,
+            "code": "chau co nga",
+            "name": "Cháu Cô Nga 3HVH",
+            "retailerId": 744514,
+            "branchId": 15132,
+            "locationName": "",
+            "wardName": "",
+            "modifiedDate": "2020-09-15T11:26:00.5430000",
+            "createdDate": "2020-08-26T16:56:11.9470000",
+            "type": 0,
+            "debt": 0.0000
+        },
+        {
+            "id": 698325,
+            "code": "CUSN00747",
+            "name": "50/6/22 NĐC",
+            "retailerId": 744514,
+            "branchId": 15132,
+            "locationName": "",
+            "wardName": "",
+            "modifiedDate": "2020-10-05T17:18:25.0700000",
+            "createdDate": "2020-08-26T16:56:11.9000000",
+            "type": 0,
+            "groups": "Khách thường",
+            "debt": 0
+        },
+        {
+            "id": 698291,
+            "code": "32 ndc",
+            "name": "32 NĐC",
+            "retailerId": 744514,
+            "branchId": 15132,
+            "locationName": "",
+            "wardName": "",
+            "modifiedDate": "2020-10-05T17:18:25.0700000",
+            "createdDate": "2020-08-26T16:56:11.9000000",
+            "type": 0,
+            "groups": "Khách thường",
+            "debt": 0
+        },...
+		]
+}
+## sql definition
+create table public.kiotviet_customers (
+  id bigint not null,
+  code text null,
+  name text null,
+  retailer_id bigint null,
+  branch_id bigint null,
+  location_name text null,
+  ward_name text null,
+  modified_date timestamp without time zone null,
+  created_date timestamp without time zone null,
+  type integer null,
+  groups text null,
+  debt numeric(12, 4) null,
+  contact_number text null,
+  comments text null,
+  constraint kiotviet_customers_pkey primary key (id),
+  constraint unique_kiotviet_customers_kiotviet_id unique (id)
+) TABLESPACE pg_default;
+## data sample
+id,code,name,retailer_id,branch_id,location_name,ward_name,modified_date,created_date,type,groups,debt,contact_number,comments
+698245,em co bay,Em cô Bảy 162/3 PĐ.Lưu,744514,15132,,,2024-01-23 08:39:28.693,2020-08-26 16:56:11.883,,Khách thường,0.0000,0986158789,
+698246,ca phe song nam,Cà Phê Song Nam,744514,15132,Hồ Chí Minh - Quận Bình Thạnh,Phường 24,2023-11-01 01:05:55.153,2020-08-26 16:56:11.883,,Khách thường,190000.0000,0769811117,
+698247,di ba chien,Dì Ba Chiến,744514,15132,,,2023-11-01 01:05:55.153,2020-08-26 16:56:11.883,,whole,0.0000,0949076747,
