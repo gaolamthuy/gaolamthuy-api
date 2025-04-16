@@ -51,7 +51,8 @@ CREATE TABLE public.kiotviet_customers (
   groups TEXT,
   debt NUMERIC(12, 4),
   contact_number TEXT,
-  comments TEXT
+  comments TEXT,
+  address TEXT
 );
 
 CREATE INDEX idx_kiotviet_customers_kiotviet_id ON public.kiotviet_customers USING btree (kiotviet_id);

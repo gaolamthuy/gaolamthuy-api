@@ -1,87 +1,146 @@
-# KiotViet Clone Service
+# Gao Lam Thuy Internal Service
 
-A Node.js service to synchronize data from KiotViet to Supabase.
+![KiotViet Integration](https://img.shields.io/badge/KiotViet-Integration-blue)
+![Node.js](https://img.shields.io/badge/Node.js-v14+-green)
+![Express](https://img.shields.io/badge/Express-4.x-lightgrey)
+![Supabase](https://img.shields.io/badge/Supabase-Database-orange)
 
-## Features
+A Node.js service for syncing data between KiotViet and Supabase for Gao Lam Thuy.
 
-- Clone products from KiotViet to Supabase
-- Clone customers from KiotViet to Supabase
-- Secure API endpoints with API key authentication
-- Clean code structure for maintainability
+## 📋 Features
 
-## Project Structure
+- **Product Data Sync**: Clone all products from KiotViet to Supabase
+- **Customer Data Sync**: Clone customer information with pagination
+- **Invoice Data Sync**: Clone invoices by year or month
+- **API Endpoints**: RESTful API for data synchronization
+- **Batch Processing**: Process large datasets in manageable batches
+- **Progress Tracking**: Detailed logging of sync progress
 
-```
-├── src/
-│   ├── controllers/      # Request handlers
-│   ├── services/         # Business logic
-│   ├── routes/           # API route definitions  
-│   ├── middlewares/      # Middleware functions
-│   ├── utils/            # Utility functions
-│   ├── app.js            # Express application setup
-│   └── server.js         # Server initialization
-├── index.js              # Application entry point
-├── .env                  # Environment variables
-└── package.json          # Project dependencies
-```
+## 🚀 Getting Started
 
-## Setup
+### Prerequisites
 
-1. Clone the repository
-2. Install dependencies:
+- Node.js (v14 or higher)
+- npm/yarn
+- Supabase account and project
+- KiotViet API credentials
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/gaolamthuy-internal-service.git
+   cd gaolamthuy-internal-service
    ```
+
+2. Install dependencies:
+   ```bash
    npm install
    ```
-3. Create a `.env` file with the following variables:
+
+3. Set up environment variables by creating a `.env` file:
    ```
-   PORT=3000
    SUPABASE_URL=your_supabase_url
-   SUPABASE_SERVICE_KEY=your_supabase_key
-   KIOTVIET_BASE_URL=your_kiotviet_api_url
-   YOUR_SECRET_TOKEN=your_api_key
+   SUPABASE_SERVICE_KEY=your_supabase_service_key
+   KIOTVIET_BASE_URL=https://public.kiotapi.com
+   YOUR_SECRET_TOKEN=your_authentication_token
+   PORT=3001
    ```
-4. Start the server:
-   ```
+
+4. Start the service:
+   ```bash
    npm start
    ```
 
-## API Endpoints
+## 🔑 Authentication
 
-All endpoints require the `x-api-key` header to be set with your API key.
+All API endpoints are protected with token-based authentication. Include the token in your request headers:
 
-### Clone Products
+```
+Authorization: Bearer YOUR_SECRET_TOKEN
+```
 
+## 🌐 API Endpoints
+
+### Products
+
+Clone all products from KiotViet:
 ```
 POST /api/kiotviet/clone/products
 ```
 
-Clones all products and their inventory from KiotViet to Supabase.
+### Customers
 
-### Clone Customers
-
+Clone all customers from KiotViet:
 ```
 POST /api/kiotviet/clone/customers
 ```
-```
-POST /api/kiotviet/clone/invoices/2025
-```
 
-Clones all customers from KiotViet to Supabase.
+### Clone All Data
 
-### Clone All
-
+Clone both products and customers:
 ```
 POST /api/kiotviet/clone/all
 ```
 
-Clones both products and customers from KiotViet to Supabase.
+### Invoices
 
-## Running with Docker
-
+Clone invoices for a specific year:
 ```
-docker-compose up -d
+POST /api/kiotviet/clone/invoices/:year
 ```
 
-## License
+Clone invoices for a specific month in a year:
+```
+POST /api/kiotviet/clone/invoices/:year/:month
+```
 
-This project is proprietary software. 
+## 🛠️ Tech Stack
+
+- **Node.js**: JavaScript runtime
+- **Express**: Web framework
+- **Supabase**: Database and backend services
+- **Axios**: HTTP client
+- **Dotenv**: Environment variables
+
+## 📈 Batch Processing
+
+The service implements batch processing with detailed progress tracking:
+
+- Products and customers are processed in batches of 100 items
+- Progress indicators show percentage completion for each stage
+- Console logs provide detailed information about the synchronization process
+
+## 🔄 Database Structure
+
+### KiotViet Tables
+
+- `kiotviet_products`: Store product information
+- `kiotviet_customers`: Store customer data
+- `kiotviet_invoices`: Store invoice headers
+- `kiotviet_invoice_details`: Store invoice line items
+- `kiotviet_invoice_payments`: Store invoice payment information
+
+## 🧪 Error Handling
+
+The service includes robust error handling:
+
+- Each sync operation has error tracking
+- Failed operations are logged with detailed error messages
+- The system attempts to continue processing despite individual failures
+
+## 📝 Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Commit your changes: `git commit -am 'Add new feature'`
+4. Push to the branch: `git push origin feature/my-feature`
+5. Submit a pull request
+
+## 📄 License
+
+This project is proprietary software for Gao Lam Thuy.
+
+## 📞 Support
+
+For support or questions, please contact the development team. 

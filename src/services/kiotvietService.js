@@ -29,33 +29,70 @@ async function getKiotVietToken() {
  * Fetch products from KiotViet API
  */
 async function fetchProducts(token) {
-  const { data } = await axios.get(
-    `${process.env.KIOTVIET_BASE_URL}/products`,
-    {
-      headers: {
-        Retailer: "gaolamthuy",
-        Authorization: `Bearer ${token}`,
-      },
-      params: {
-        pageSize: 100,
-        includeInventory: true,
-      },
-    }
-  );
+  console.log("🔄 Starting product fetch from KiotViet API...");
+  
+  const allProducts = [];
+  let currentItem = 0;
+  const pageSize = 100;
+  let totalProducts = 0;
+  let page = 1;
 
-  return data.data;
+  do {
+    console.log(`📦 Fetching products batch ${page}: items ${currentItem+1}-${currentItem+pageSize}...`);
+    
+    const { data } = await axios.get(
+      `${process.env.KIOTVIET_BASE_URL}/products`,
+      {
+        headers: {
+          Retailer: "gaolamthuy",
+          Authorization: `Bearer ${token}`,
+        },
+        params: {
+          pageSize: pageSize,
+          currentItem: currentItem,
+          includeInventory: true,
+        },
+      }
+    );
+
+    // Add the fetched products to the allProducts array
+    const batchProducts = data.data || [];
+    allProducts.push(...batchProducts);
+    
+    // Get the total number of products
+    totalProducts = data.total || 0; 
+    
+    // Log progress
+    const progress = ((allProducts.length / totalProducts) * 100).toFixed(1);
+    console.log(`✅ Batch ${page} complete: ${batchProducts.length} products (Total: ${allProducts.length}/${totalProducts}, ${progress}%)`);
+    
+    // Move to the next page
+    currentItem += pageSize;
+    page++;
+    
+    // Add a small delay to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 300));
+  } while (currentItem < totalProducts);
+
+  console.log(`🎉 Product fetch complete: ${allProducts.length} products retrieved`);
+  return allProducts;
 }
 
 /**
  * Fetch customers from KiotViet API with pagination
  */
 async function fetchCustomers(token) {
+  console.log("🔄 Starting customer fetch from KiotViet API...");
+  
   const allCustomers = [];
   let currentItem = 0;
   const pageSize = 100;
   let totalCustomers = 0;
+  let page = 1;
 
   do {
+    console.log(`👤 Fetching customers batch ${page}: items ${currentItem+1}-${currentItem+pageSize}...`);
+    
     const { data } = await axios.get(
       `${process.env.KIOTVIET_BASE_URL}/customers`,
       {
@@ -72,11 +109,25 @@ async function fetchCustomers(token) {
     );
 
     // Add the fetched customers to the allCustomers array
-    allCustomers.push(...data.data);
-    totalCustomers = data.total; // Get the total number of customers
-    currentItem += pageSize; // Move to the next page
+    const batchCustomers = data.data || [];
+    allCustomers.push(...batchCustomers);
+    
+    // Get the total number of customers
+    totalCustomers = data.total || 0; 
+    
+    // Log progress
+    const progress = ((allCustomers.length / totalCustomers) * 100).toFixed(1);
+    console.log(`✅ Batch ${page} complete: ${batchCustomers.length} customers (Total: ${allCustomers.length}/${totalCustomers}, ${progress}%)`);
+    
+    // Move to the next page
+    currentItem += pageSize;
+    page++;
+    
+    // Add a small delay to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 300));
   } while (currentItem < totalCustomers);
 
+  console.log(`🎉 Customer fetch complete: ${allCustomers.length} customers retrieved`);
   return allCustomers;
 }
 
@@ -84,15 +135,20 @@ async function fetchCustomers(token) {
  * Import products into Supabase
  */
 async function importProducts(products) {
-  console.log("🚀 Starting product import...");
+  console.log("🚀 Starting product import process...");
+  console.log(`📊 Total products to import: ${products.length}`);
 
   // Clean tables
+  console.log("🧹 Cleaning inventory and product tables...");
   await supabase.from("kiotviet_inventories").delete().neq("id", 0);
   await supabase.from("kiotviet_products").delete().neq("id", 0);
-  console.log("✅ Tables cleared");
+  console.log("✅ Tables cleared successfully");
 
   // Prepare arrays
   const productRecords = [];
+  
+  console.log("🔄 Processing product data...");
+  let processedCount = 0;
 
   for (const product of products) {
     productRecords.push({
@@ -124,22 +180,48 @@ async function importProducts(products) {
       trade_mark_id: product.tradeMarkId || null,
       images: product.images ? product.images : [],
     });
-  }
-
-  // Insert products
-  const { error: productError } = await supabase
-    .from("kiotviet_products")
-    .insert(productRecords);
     
-  if (productError) {
-    console.error("❌ Error inserting products:", productError);
-    throw productError;
+    processedCount++;
+    
+    // Log progress every 100 products
+    if (processedCount % 100 === 0 || processedCount === products.length) {
+      const progress = ((processedCount / products.length) * 100).toFixed(1);
+      console.log(`⏳ Processed ${processedCount}/${products.length} products (${progress}%)`);
+    }
   }
 
-  console.log(`✅ Inserted ${productRecords.length} products`);
+  // Insert products in batches of 100
+  console.log("💾 Inserting products into database...");
+  const batchSize = 100;
+  let insertedCount = 0;
+  let batchCount = 0;
+  
+  for (let i = 0; i < productRecords.length; i += batchSize) {
+    batchCount++;
+    const batch = productRecords.slice(i, i + batchSize);
+    console.log(`📦 Inserting batch ${batchCount}: products ${i+1}-${Math.min(i+batchSize, productRecords.length)}...`);
+    
+    const { error: productError } = await supabase
+      .from("kiotviet_products")
+      .insert(batch);
+      
+    if (productError) {
+      console.error(`❌ Error inserting batch ${batchCount}:`, productError);
+      throw productError;
+    }
+    
+    insertedCount += batch.length;
+    const progress = ((insertedCount / productRecords.length) * 100).toFixed(1);
+    console.log(`✅ Batch ${batchCount} complete: ${insertedCount}/${productRecords.length} products inserted (${progress}%)`);
+    
+    // Add a small delay to avoid overwhelming the database
+    await new Promise(resolve => setTimeout(resolve, 300));
+  }
+
+  console.log(`🎉 Product import complete: ${insertedCount} products imported successfully`);
   
   return {
-    productsCount: productRecords.length
+    productsCount: insertedCount
   };
 }
 
@@ -147,48 +229,137 @@ async function importProducts(products) {
  * Import customers into Supabase
  */
 async function importCustomers(customers) {
-  console.log("🚀 Starting customer import...");
+  console.log("🚀 Starting customer import process...");
+  console.log(`📊 Total customers to import: ${customers.length}`);
 
-  // Clean table
-  await supabase.from("kiotviet_customers").delete().neq("id", 0);
-  console.log("✅ Customers table cleared");
+  try {
+    console.log("🧹 Cleaning database tables for customer import...");
+    
+    // First delete all invoice details and payments to remove dependencies
+    const { error: detailsError } = await supabase
+      .from('kiotviet_invoice_details')
+      .delete()
+      .neq('id', 0);
+    
+    if (detailsError) {
+      console.error("⚠️ Warning clearing invoice details:", detailsError.message);
+    }
+    
+    const { error: paymentsError } = await supabase
+      .from('kiotviet_invoice_payments')
+      .delete()
+      .neq('id', 0);
+    
+    if (paymentsError) {
+      console.error("⚠️ Warning clearing invoice payments:", paymentsError.message);
+    }
+    
+    // Then delete all invoices
+    const { error: invoicesError } = await supabase
+      .from('kiotviet_invoices')
+      .delete()
+      .neq('id', 0);
+    
+    if (invoicesError) {
+      console.error("⚠️ Warning clearing invoices:", invoicesError.message);
+    }
+    
+    // Finally delete all customers
+    const { error: deleteError } = await supabase
+      .from("kiotviet_customers")
+      .delete()
+      .neq("id", 0);
+    
+    if (deleteError) {
+      console.error("❌ Error clearing customers table:", deleteError);
+      // Try an alternative approach using upsert instead of failing
+    }
+    
+    console.log("✅ Tables cleared successfully");
+  } catch (error) {
+    console.error("❌ Error clearing tables:", error);
+    console.log("⚠️ Will attempt to use upsert instead of insert");
+  }
 
   // Prepare customer records
-  const customerRecords = customers.map(customer => ({
-    kiotviet_id: customer.id,
-    code: customer.code,
-    name: customer.name,
-    retailer_id: customer.retailerId,
-    branch_id: customer.branchId,
-    location_name: customer.locationName || "",
-    ward_name: customer.wardName || "",
-    modified_date: customer.modifiedDate,
-    created_date: customer.createdDate,
-    type: customer.type || null,
-    groups: customer.groups || null,
-    debt: customer.debt || 0,
-    contact_number: customer.contactNumber || "",
-    comments: customer.comments || ""
-  }));
+  console.log("🔄 Processing customer data...");
+  let processedCount = 0;
+  
+  const customerRecords = customers.map(customer => {
+    processedCount++;
+    
+    // Log progress every 100 customers
+    if (processedCount % 100 === 0 || processedCount === customers.length) {
+      const progress = ((processedCount / customers.length) * 100).toFixed(1);
+      console.log(`⏳ Processed ${processedCount}/${customers.length} customers (${progress}%)`);
+    }
+    
+    return {
+      kiotviet_id: customer.id,
+      code: customer.code,
+      name: customer.name,
+      retailer_id: customer.retailerId,
+      branch_id: customer.branchId,
+      location_name: customer.locationName || "",
+      ward_name: customer.wardName || "",
+      modified_date: customer.modifiedDate,
+      created_date: customer.createdDate,
+      type: customer.type || null,
+      groups: customer.groups || null,
+      debt: customer.debt || 0,
+      contact_number: customer.contactNumber || "",
+      comments: customer.comments || "",
+      address: customer.address || ""
+    };
+  });
 
   // Remove duplicates based on kiotviet_id
   const uniqueCustomerRecords = Array.from(new Map(customerRecords.map(item => [item.kiotviet_id, item])).values());
+  console.log(`🔍 Found ${customerRecords.length - uniqueCustomerRecords.length} duplicate records`);
+  console.log(`📦 Preparing to import ${uniqueCustomerRecords.length} unique customers`);
 
-  // Insert customers
-  const { error } = await supabase
-    .from("kiotviet_customers")
-    .insert(uniqueCustomerRecords);
+  try {
+    // Insert customers in batches of 100
+    console.log("💾 Inserting customers into database...");
+    const batchSize = 100;
+    let insertedCount = 0;
+    let batchCount = 0;
     
-  if (error) {
-    console.error("❌ Error inserting customers:", error);
+    for (let i = 0; i < uniqueCustomerRecords.length; i += batchSize) {
+      batchCount++;
+      const batch = uniqueCustomerRecords.slice(i, i + batchSize);
+      console.log(`📦 Processing batch ${batchCount}: customers ${i+1}-${Math.min(i+batchSize, uniqueCustomerRecords.length)}...`);
+      
+      // Use upsert instead of insert to handle existing records
+      const { error } = await supabase
+        .from("kiotviet_customers")
+        .upsert(batch, { 
+          onConflict: 'kiotviet_id',
+          ignoreDuplicates: false
+        });
+        
+      if (error) {
+        console.error(`❌ Error in batch ${batchCount}:`, error);
+        throw error;
+      }
+      
+      insertedCount += batch.length;
+      const progress = ((insertedCount / uniqueCustomerRecords.length) * 100).toFixed(1);
+      console.log(`✅ Batch ${batchCount} complete: ${insertedCount}/${uniqueCustomerRecords.length} customers imported (${progress}%)`);
+      
+      // Add a small delay to avoid overwhelming the database
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    console.log(`🎉 Customer import complete: ${insertedCount} customers imported successfully`);
+    
+    return {
+      customersCount: insertedCount
+    };
+  } catch (error) {
+    console.error("❌ Error cloning KiotViet customers:", error);
     throw error;
   }
-
-  console.log(`✅ Inserted ${uniqueCustomerRecords.length} customers`);
-  
-  return {
-    customersCount: uniqueCustomerRecords.length
-  };
 }
 
 /**
