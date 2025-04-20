@@ -1,0 +1,43 @@
+{
+  "lastUpdated": "2025-04-20T09:42:22.802Z",
+  "version": 1,
+  "totalCount": 2,
+  "images": [
+    {
+      "id": 2,
+      "kiotvietId": 3065552,
+      "slug": "504-tieu-chuan-kg",
+      "tags": [
+        "5451tc",
+        "5451 tc"
+      ],
+      "updatedAt": 1745125292937,
+      "visible": true,
+      "sortOrder": null,
+      "urls": {
+        "thumbnail": "https://cdn.gaolamthuy.vn/product-images/dynamic/thumbnail/504-tieu-chuan-kg.webp?v=1745125292937",
+        "zoom": "https://cdn.gaolamthuy.vn/product-images/dynamic/zoom/504-tieu-chuan-kg.webp?v=1745125292937"
+      }
+    },
+    {
+      "id": 3,
+      "kiotvietId": 3065553,
+      "slug": "504-lo-kg",
+      "tags": [
+        "504l",
+        "504 lo",
+        "504 l",
+        "504 cu",
+        "504c",
+        "504 c"
+      ],
+      "updatedAt": 1745131893345,
+      "visible": true,
+      "sortOrder": null,
+      "urls": {
+        "thumbnail": "https://cdn.gaolamthuy.vn/product-images/dynamic/thumbnail/504-lo-kg.webp?v=1745131893345",
+        "zoom": "https://cdn.gaolamthuy.vn/product-images/dynamic/zoom/504-lo-kg.webp?v=1745131893345"
+      }
+    }
+  ]
+}

@@ -66,33 +66,33 @@ Authorization: Bearer YOUR_SECRET_TOKEN
 
 Clone all products from KiotViet:
 ```
-POST /api/kiotviet/clone/products
+POST /kiotviet/clone/products
 ```
 
 ### Customers
 
 Clone all customers from KiotViet:
 ```
-POST /api/kiotviet/clone/customers
+POST /kiotviet/clone/customers
 ```
 
 ### Clone All Data
 
 Clone both products and customers:
 ```
-POST /api/kiotviet/clone/all
+POST /kiotviet/clone/all
 ```
 
 ### Invoices
 
 Clone invoices for a specific year:
 ```
-POST /api/kiotviet/clone/invoices/:year
+POST /kiotviet/clone/invoices/:year
 ```
 
 Clone invoices for a specific month in a year:
 ```
-POST /api/kiotviet/clone/invoices/:year/:month
+POST /kiotviet/clone/invoices/:year/:month
 ```
 
 ## 🛠️ Tech Stack

@@ -144,10 +144,75 @@ const cloneInvoicesByMonth = async (req, res) => {
   }
 };
 
+/**
+ * Handle invoice update webhook from KiotViet
+ */
+const handleInvoiceWebhook = async (req, res) => {
+  try {
+    console.log("📩 Received webhook from KiotViet");
+    console.log("🔍 Webhook payload:", JSON.stringify(req.body, null, 2));
+    
+    // Validate webhook secret
+    if (req.body && req.body.Webhook && req.body.Webhook.Secret) {
+      const webhookSecret = req.body.Webhook.Secret;
+      const expectedSecret = process.env.KIOTVIET_WEBHOOK_SECRET;
+      
+      if (webhookSecret !== expectedSecret) {
+        console.error("❌ Invalid webhook secret");
+        return res.status(403).json({ 
+          success: false, 
+          message: "Invalid webhook secret"
+        });
+      }
+      
+      console.log("✅ Webhook secret validated");
+      
+      // Process webhook data
+      const webhook = req.body.Webhook;
+      console.log(`📝 Webhook Type: ${webhook.Type}`);
+      console.log(`🔗 Webhook URL: ${webhook.Url}`);
+      console.log(`⚡ Active: ${webhook.IsActive}`);
+      console.log(`📄 Description: ${webhook.Description}`);
+      
+      res.status(200).json({ success: true, message: "Webhook received successfully" });
+    } 
+    // Legacy format handling (backward compatibility)
+    else if (req.body && req.body.Notifications) {
+      console.log("⚠️ Received legacy webhook format");
+      
+      const notifications = req.body.Notifications;
+      for (const notification of notifications) {
+        if (notification.Action && notification.Data) {
+          console.log(`✅ Action: ${notification.Action}`);
+          console.log(`📊 Data count: ${notification.Data.length} items`);
+          
+          // Process each item in the notification
+          for (const item of notification.Data) {
+            console.log(`📄 Processing invoice ID: ${item.Id}, Code: ${item.Code}`);
+          }
+        }
+      }
+      
+      res.status(200).json({ success: true, message: "Legacy webhook received successfully" });
+    } 
+    else {
+      console.error("❌ Invalid webhook payload format");
+      return res.status(400).json({ 
+        success: false, 
+        message: "Invalid webhook payload format"
+      });
+    }
+  } catch (error) {
+    console.error("❌ Error processing webhook:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
 module.exports = {
   cloneProducts,
   cloneCustomers,
   cloneAll,
   cloneInvoices,
-  cloneInvoicesByMonth
+  cloneInvoicesByMonth,
+  handleInvoiceWebhook
 }; 

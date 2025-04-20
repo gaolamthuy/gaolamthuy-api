@@ -138,11 +138,35 @@ async function importProducts(products) {
   console.log("🚀 Starting product import process...");
   console.log(`📊 Total products to import: ${products.length}`);
 
-  // Clean tables
+  // Clean tables - modified to be more thorough
   console.log("🧹 Cleaning inventory and product tables...");
-  await supabase.from("kiotviet_inventories").delete().neq("id", 0);
-  await supabase.from("kiotviet_products").delete().neq("id", 0);
-  console.log("✅ Tables cleared successfully");
+  try {
+    // Delete everything from the inventory table first (because of foreign key constraints)
+    const { error: invError } = await supabase
+      .from("kiotviet_inventories")
+      .delete()
+      .gte("id", 0);
+    
+    if (invError) {
+      console.error("⚠️ Warning clearing inventory table:", invError.message);
+    }
+    
+    // Then delete everything from the products table
+    const { error: prodError } = await supabase
+      .from("kiotviet_products")
+      .delete()
+      .gte("id", 0);
+    
+    if (prodError) {
+      console.error("⚠️ Warning clearing products table:", prodError.message);
+      console.log("⚠️ Will attempt to use upsert instead of insert");
+    } else {
+      console.log("✅ Tables cleared successfully");
+    }
+  } catch (error) {
+    console.error("❌ Error clearing tables:", error);
+    console.log("⚠️ Will attempt to use upsert instead of insert");
+  }
 
   // Prepare arrays
   const productRecords = [];
@@ -201,9 +225,13 @@ async function importProducts(products) {
     const batch = productRecords.slice(i, i + batchSize);
     console.log(`📦 Inserting batch ${batchCount}: products ${i+1}-${Math.min(i+batchSize, productRecords.length)}...`);
     
+    // Use upsert instead of insert to handle potential duplicates
     const { error: productError } = await supabase
       .from("kiotviet_products")
-      .insert(batch);
+      .upsert(batch, { 
+        onConflict: 'kiotviet_id',
+        ignoreDuplicates: false // Update if duplicate found
+      });
       
     if (productError) {
       console.error(`❌ Error inserting batch ${batchCount}:`, productError);
@@ -220,8 +248,106 @@ async function importProducts(products) {
 
   console.log(`🎉 Product import complete: ${insertedCount} products imported successfully`);
   
+  // Insert inventories in batches
+  if (insertedCount > 0) {
+    console.log("\n💾 Processing inventory data...");
+    
+    // Fetch all products to get their IDs
+    const { data: allProducts } = await supabase
+      .from("kiotviet_products")
+      .select("id, kiotviet_id");
+    
+    if (!allProducts) {
+      console.error("❌ Error fetching products for inventory processing");
+      return { success: false, message: "Failed to fetch products for inventory" };
+    }
+    
+    // Create a map of KiotViet IDs to local product IDs
+    const productIdMap = {};
+    allProducts.forEach(product => {
+      productIdMap[product.kiotviet_id] = product.id;
+    });
+    
+    // Prepare inventory records
+    const inventoryRecords = [];
+    let inventoryCount = 0;
+    
+    for (const product of products) {
+      if (product.inventories && product.inventories.length > 0) {
+        for (const inventory of product.inventories) {
+          // Skip if we don't have a local product ID
+          if (!productIdMap[product.id]) {
+            console.warn(`⚠️ No local product ID found for KiotViet product ID: ${product.id}`);
+            continue;
+          }
+          
+          inventoryRecords.push({
+            product_id: productIdMap[product.id],
+            kiotviet_product_id: product.id,
+            product_code: inventory.productCode,
+            product_name: inventory.productName,
+            branch_id: inventory.branchId,
+            branch_name: inventory.branchName,
+            cost: inventory.cost,
+            on_hand: inventory.onHand,
+            reserved: inventory.reserved,
+            actual_reserved: inventory.actualReserved,
+            min_quantity: inventory.minQuantity,
+            max_quantity: inventory.maxQuantity,
+            is_active: inventory.isActive,
+            on_order: inventory.onOrder
+          });
+          
+          inventoryCount++;
+        }
+      }
+    }
+    
+    console.log(`📊 Total inventory records to insert: ${inventoryCount}`);
+    
+    // Insert inventories in batches
+    if (inventoryCount > 0) {
+      const invBatchSize = 100;
+      let invInsertedCount = 0;
+      let invBatchCount = 0;
+      
+      while (invInsertedCount < inventoryRecords.length) {
+        const batch = inventoryRecords.slice(
+          invInsertedCount,
+          invInsertedCount + invBatchSize
+        );
+        
+        try {
+          const { error: invInsertError } = await supabase
+            .from("kiotviet_inventories")
+            .insert(batch);
+          
+          if (invInsertError) {
+            console.error(`❌ Error inserting inventory batch ${invBatchCount}:`, invInsertError);
+          } else {
+            invInsertedCount += batch.length;
+            invBatchCount++;
+            console.log(`✅ Inserted inventory batch ${invBatchCount}: ${invInsertedCount}/${inventoryRecords.length} records`);
+          }
+        } catch (error) {
+          console.error(`❌ Exception inserting inventory batch ${invBatchCount}:`, error);
+        }
+        
+        // Small delay to avoid overwhelming the database
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      
+      console.log(`✅ Inserted ${invInsertedCount} inventory records in ${invBatchCount} batches`);
+    } else {
+      console.log("⚠️ No inventory records to insert");
+    }
+  }
+
+  // Return the final result
   return {
-    productsCount: insertedCount
+    success: true,
+    count: insertedCount,
+    message: `Successfully imported ${insertedCount} products`,
   };
 }
 
