@@ -1,35 +1,11 @@
 version: "3.8"
 
 services:
-  gaolamthuy-api:
+  internal-service:
     image: ghcr.io/gaolamthuy/gaolamthuy-internal-service:latest
     container_name: gaolamthuy-api
     restart: always
-    environment:
-      - NODE_ENV=production
-    env_file:
-      - .env
     ports:
-      - "3000:3000"
-    volumes:
-      - uploads-data:/app/uploads
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-
-volumes:
-  uploads-data:
-    name: gaolamthuy-uploads
+      - ${PORT}:${PORT}
+    environment:
+      - .env
