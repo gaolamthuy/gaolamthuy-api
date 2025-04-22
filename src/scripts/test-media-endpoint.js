@@ -19,8 +19,8 @@ async function testMediaManifestEndpoint() {
     console.log(`Making request to: ${url}`);
     
     // Create basic auth credentials
-    const username = process.env.MEDIA_AUTH_USER || 'username123';
-    const password = process.env.MEDIA_AUTH_PASS || 'password123456';
+    const username = process.env.BASIC_AUTH_USER || 'username123';
+    const password = process.env.BASIC_AUTH_PASS || 'password123456';
     
     // Base64 encode the credentials
     const auth = Buffer.from(`${username}:${password}`).toString('base64');

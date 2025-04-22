@@ -57,8 +57,8 @@ S3_SECRET_KEY=your-secret-key
 S3_REGION=auto
 
 # Authentication
-MEDIA_AUTH_USER=username
-MEDIA_AUTH_PASS=password
+BASIC_AUTH_USER=username
+BASIC_AUTH_PASS=password
 
 # Other
 PORT=3001
