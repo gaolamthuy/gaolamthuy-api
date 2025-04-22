@@ -565,11 +565,181 @@ async function cloneInvoicesByMonth(year, month) {
   }
 }
 
+/**
+ * Fetch and clone invoices for a specific day from KiotViet API
+ * @param {number|string} year - The year (e.g., 2023)
+ * @param {number|string} month - The month (1-12)
+ * @param {number|string} day - The day (1-31)
+ * @returns {Promise<Object>} Results of the operation
+ */
+async function cloneInvoicesByDay(year, month, day) {
+  try {
+    // Validate inputs
+    const yearNum = parseInt(year, 10);
+    const monthNum = parseInt(month, 10);
+    const dayNum = parseInt(day, 10);
+    
+    if (isNaN(yearNum) || isNaN(monthNum) || isNaN(dayNum)) {
+      throw new Error('Invalid year, month, or day');
+    }
+    
+    // Format date parts with leading zeros if needed
+    const monthStr = monthNum.toString().padStart(2, '0');
+    const dayStr = dayNum.toString().padStart(2, '0');
+    
+    // Create date string for the specific day (YYYY-MM-DD)
+    const dateStr = `${yearNum}-${monthStr}-${dayStr}`;
+    
+    console.log(`🔄 Starting invoice clone process for ${dateStr}`);
+    
+    // Fetch invoices from KiotViet API for the specific day
+    const invoices = await fetchAllPages('/invoices', { 
+      fromPurchaseDate: dateStr,
+      toPurchaseDate: dateStr,
+      includeInvoiceDetails: true
+    });
+    
+    if (invoices.length === 0) {
+      return { 
+        success: true, 
+        message: `No invoices found for ${dateStr}`, 
+        count: 0 
+      };
+    }
+    
+    console.log(`🧾 Processing ${invoices.length} invoices for ${dateStr}...`);
+    
+    // Process in batches
+    const batchSize = 25;
+    let successCount = 0;
+    let errorCount = 0;
+    let detailsCount = 0;
+    
+    for (let i = 0; i < invoices.length; i += batchSize) {
+      const batch = invoices.slice(i, Math.min(i + batchSize, invoices.length));
+      
+      console.log(`🔄 Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(invoices.length/batchSize)}`);
+      
+      // Process invoices in current batch
+      for (const invoice of batch) {
+        try {
+          // Map KiotViet invoice data to our database structure
+          const invoiceData = {
+            kiotviet_id: invoice.id,
+            uuid: invoice.uuid || null,
+            code: invoice.code,
+            purchase_date: invoice.purchaseDate ? new Date(invoice.purchaseDate) : null,
+            branch_id: invoice.branchId,
+            branch_name: invoice.branchName || '',
+            sold_by_id: invoice.soldById || null,
+            sold_by_name: invoice.soldByName || '',
+            kiotviet_customer_id: invoice.customerId || null,
+            customer_code: invoice.customerCode || '',
+            customer_name: invoice.customerName || '',
+            order_code: invoice.orderCode || '',
+            total: invoice.total || 0,
+            total_payment: invoice.totalPayment || 0,
+            status: invoice.status || null,
+            status_value: invoice.statusValue || '',
+            using_cod: invoice.usingCod || false,
+            created_date: invoice.createdDate ? new Date(invoice.createdDate) : null,
+            synced_at: new Date()
+          };
+          
+          // Insert or update invoice
+          const { data: savedInvoice, error: invoiceError } = await supabase
+            .from('kv_invoices')
+            .upsert([invoiceData], { 
+              onConflict: 'kiotviet_id',
+              ignoreDuplicates: false
+            })
+            .select();
+            
+          if (invoiceError) {
+            console.error(`❌ Error upserting invoice ${invoice.code}:`, invoiceError);
+            errorCount++;
+            continue;
+          }
+          
+          // Process invoice details if available
+          if (invoice.invoiceDetails && Array.isArray(invoice.invoiceDetails) && savedInvoice && savedInvoice.length > 0) {
+            const invoiceId = savedInvoice[0].id;
+            
+            // Delete existing details for this invoice
+            const { error: deleteError } = await supabase
+              .from('kv_invoice_details')
+              .delete()
+              .eq('invoice_id', invoiceId);
+              
+            if (deleteError) {
+              console.error(`❌ Error deleting invoice details for invoice ${invoice.code}:`, deleteError);
+              continue;
+            }
+            
+            // Prepare details for batch insert
+            const detailsData = invoice.invoiceDetails.map(detail => ({
+              invoice_id: invoiceId,
+              kiotviet_product_id: detail.productId,
+              product_code: detail.productCode || '',
+              product_name: detail.productName || '',
+              category_id: detail.categoryId || null,
+              category_name: detail.categoryName || '',
+              quantity: detail.quantity || 0,
+              price: detail.price || 0,
+              discount: detail.discount || 0,
+              sub_total: detail.subTotal || 0,
+              note: detail.note || '',
+              serial_numbers: detail.serialNumbers || '',
+              return_quantity: detail.returnQuantity || 0,
+              synced_at: new Date()
+            }));
+            
+            if (detailsData.length > 0) {
+              // Insert new details
+              const { error: detailsError } = await supabase
+                .from('kv_invoice_details')
+                .insert(detailsData);
+                
+              if (detailsError) {
+                console.error(`❌ Error inserting details for invoice ${invoice.code}:`, detailsError);
+              } else {
+                detailsCount += detailsData.length;
+              }
+            }
+          }
+          
+          successCount++;
+        } catch (error) {
+          console.error(`❌ Error processing invoice ${invoice.code}:`, error.message);
+          errorCount++;
+        }
+      }
+    }
+    
+    console.log(`✅ Completed invoice clone for ${dateStr}: ${successCount} invoices, ${detailsCount} details, ${errorCount} errors`);
+    
+    return {
+      success: true,
+      message: `Invoices for ${dateStr} cloned successfully`,
+      count: {
+        total: invoices.length,
+        success: successCount,
+        error: errorCount,
+        details: detailsCount
+      }
+    };
+  } catch (error) {
+    console.error("❌ Error in invoice clone by day:", error);
+    throw error;
+  }
+}
+
 module.exports = {
   getKiotVietToken,
   getKiotVietHeaders,
   fetchAllPages,
   cloneProducts,
   cloneCustomers,
-  cloneInvoicesByMonth
+  cloneInvoicesByMonth,
+  cloneInvoicesByDay
 }; 
