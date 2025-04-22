@@ -1,12 +1,44 @@
 # Node.js
 node_modules
 npm-debug.log
+yarn-error.log
+package-lock.json
+pnpm-lock.yaml
 .env
+.env.*
 
 # System files
 .DS_Store
 Thumbs.db
 
-# Others
+# Build and output folders
 dist
 .cache
+build
+coverage
+uploads/*
+!uploads/.gitkeep
+!uploads/temp/.gitkeep
+
+# IDE-specific
+.idea
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Local project notes
+/notes
+/docs
+TODO.md
+
+# Temporary files
+*.log
+*.tmp
+.tmp
+tmp/
+*.swp
+*.swo
+
+# Deployment-specific
+.github/workflows/build.yml
+cursorai-instruction

@@ -5,7 +5,22 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "test:db": "node src/scripts/bak/test-db-connection.js",
+    "token:refresh": "node src/utils/refreshKiotVietToken.js",
+    "kv:check": "node src/scripts/bak/check-products.js",
+    "kv:check-token": "curl 'https://supabase.gaolamthuy.vn/rest/v1/system?select=*&title=eq.kiotviet' -H \"apikey: $SUPABASE_SERVICE_KEY\" -H \"Authorization: Bearer $SUPABASE_SERVICE_KEY\"",
+    "kv:test-token": "node src/scripts/check-token.js",
+    "kv:test-customers": "node src/scripts/test-customers.js",
+    "media:test-manifest": "node src/scripts/test-manifest.js",
+    "media:test-endpoint": "node src/scripts/test-media-endpoint.js",
+    "media:test-direct": "node src/scripts/test-media-direct.js",
+    
+    "kv:sync:products": "curl -X POST http://localhost:3001/kiotviet/clone/products -u username123:password123456",
+    "kv:sync:customers": "curl -X POST http://localhost:3001/kiotviet/clone/customers -u username123:password123456",
+    "kv:sync:invoices": "curl -X POST http://localhost:3001/kiotviet/clone/invoices/$(date +%Y)/$(date +%m) -u username123:password123456",
+    
+    "media:manifest": "curl -X GET http://localhost:3001/media/manifest/generate -u username123:password123456"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",
@@ -14,6 +29,7 @@
     "basic-auth": "^2.0.1",
     "canvas": "^3.1.0",
     "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "morgan": "^1.10.0",

@@ -1,146 +1,102 @@
 # Gao Lam Thuy Internal Service
 
-![KiotViet Integration](https://img.shields.io/badge/KiotViet-Integration-blue)
-![Node.js](https://img.shields.io/badge/Node.js-v14+-green)
-![Express](https://img.shields.io/badge/Express-4.x-lightgrey)
-![Supabase](https://img.shields.io/badge/Supabase-Database-orange)
+This internal service handles various backend operations for Gao Lam Thuy:
 
-A Node.js service for syncing data between KiotViet and Supabase for Gao Lam Thuy.
+- Media file uploads and management
+- KiotViet data synchronization
+- Product and category management
 
-## 📋 Features
+## Project Structure
 
-- **Product Data Sync**: Clone all products from KiotViet to Supabase
-- **Customer Data Sync**: Clone customer information with pagination
-- **Invoice Data Sync**: Clone invoices by year or month
-- **API Endpoints**: RESTful API for data synchronization
-- **Batch Processing**: Process large datasets in manageable batches
-- **Progress Tracking**: Detailed logging of sync progress
+```
+├── src/
+│   ├── controllers/     # Request handlers
+│   ├── middlewares/     # Express middleware
+│   ├── routes/          # API route definitions
+│   ├── services/        # Business logic and external API integration
+│   ├── utils/           # Utility functions
+│   ├── app.js           # Express configuration
+│   └── server.js        # HTTP server and scheduled tasks
+├── scripts/             # Utility scripts
+│   └── test-db-connection.js
+├── uploads/             # Uploaded files directory
+├── .env                 # Environment variables
+├── .env.example         # Example environment file
+├── index.js             # Application entry point
+└── package.json         # Dependencies and scripts
+```
 
-## 🚀 Getting Started
+## Key Files
 
-### Prerequisites
+- **mediaRoutes.js**: Media upload and handling routes
+- **refreshKiotVietToken.js**: Utility to refresh the KiotViet API token
+- **test-db-connection.js**: Script to test the Supabase database connection
 
-- Node.js (v14 or higher)
-- npm/yarn
-- Supabase account and project
-- KiotViet API credentials
+## Environment Variables
 
-### Installation
+The application uses environment variables for configuration. Copy `.env.example` to `.env` and configure:
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/gaolamthuy-internal-service.git
-   cd gaolamthuy-internal-service
+```
+# KiotViet API
+KIOTVIET_BASE_URL=https://id.kiotviet.vn
+KIOTVIET_PUBLIC_API_URL=https://public.kiotapi.com
+KIOTVIET_CLIENT_ID=your-client-id
+KIOTVIET_CLIENT_SECRET=your-client-secret
+KIOTVIET_RETAILER=your-retailer-name
+
+# Supabase
+SUPABASE_URL=your-supabase-url
+SUPABASE_SERVICE_KEY=your-service-key
+
+# S3 Storage
+S3_BUCKET_NAME=your-bucket-name
+CDN_ENDPOINT=your-cdn-url
+S3_ENDPOINT=your-s3-endpoint
+S3_ACCESS_KEY=your-access-key
+S3_SECRET_KEY=your-secret-key
+S3_REGION=auto
+
+# Authentication
+MEDIA_AUTH_USER=username
+MEDIA_AUTH_PASS=password
+
+# Other
+PORT=3001
+```
+
+## Setup and Running
+
+1. Install dependencies:
    ```
-
-2. Install dependencies:
-   ```bash
    npm install
    ```
 
-3. Set up environment variables by creating a `.env` file:
-   ```
-   SUPABASE_URL=your_supabase_url
-   SUPABASE_SERVICE_KEY=your_supabase_service_key
-   KIOTVIET_BASE_URL=https://public.kiotapi.com
-   YOUR_SECRET_TOKEN=your_authentication_token
-   PORT=3001
-   ```
+2. Set up environment variables by copying `.env.example` to `.env` and configuring it.
 
-4. Start the service:
-   ```bash
+3. Run the application:
+   ```
    npm start
    ```
 
-## 🔑 Authentication
+4. For development with auto-restart:
+   ```
+   npm run dev
+   ```
 
-All API endpoints are protected with token-based authentication. Include the token in your request headers:
+## Database Connection Test
+
+Test the database connection with:
 
 ```
-Authorization: Bearer YOUR_SECRET_TOKEN
+node scripts/test-db-connection.js
 ```
 
-## 🌐 API Endpoints
+## KiotViet Token Refresh
 
-### Products
+Refresh the KiotViet token manually with:
 
-Clone all products from KiotViet:
 ```
-POST /kiotviet/clone/products
-```
-
-### Customers
-
-Clone all customers from KiotViet:
-```
-POST /kiotviet/clone/customers
+node src/utils/refreshKiotVietToken.js
 ```
 
-### Clone All Data
-
-Clone both products and customers:
-```
-POST /kiotviet/clone/all
-```
-
-### Invoices
-
-Clone invoices for a specific year:
-```
-POST /kiotviet/clone/invoices/:year
-```
-
-Clone invoices for a specific month in a year:
-```
-POST /kiotviet/clone/invoices/:year/:month
-```
-
-## 🛠️ Tech Stack
-
-- **Node.js**: JavaScript runtime
-- **Express**: Web framework
-- **Supabase**: Database and backend services
-- **Axios**: HTTP client
-- **Dotenv**: Environment variables
-
-## 📈 Batch Processing
-
-The service implements batch processing with detailed progress tracking:
-
-- Products and customers are processed in batches of 100 items
-- Progress indicators show percentage completion for each stage
-- Console logs provide detailed information about the synchronization process
-
-## 🔄 Database Structure
-
-### KiotViet Tables
-
-- `kiotviet_products`: Store product information
-- `kiotviet_customers`: Store customer data
-- `kiotviet_invoices`: Store invoice headers
-- `kiotviet_invoice_details`: Store invoice line items
-- `kiotviet_invoice_payments`: Store invoice payment information
-
-## 🧪 Error Handling
-
-The service includes robust error handling:
-
-- Each sync operation has error tracking
-- Failed operations are logged with detailed error messages
-- The system attempts to continue processing despite individual failures
-
-## 📝 Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Commit your changes: `git commit -am 'Add new feature'`
-4. Push to the branch: `git push origin feature/my-feature`
-5. Submit a pull request
-
-## 📄 License
-
-This project is proprietary software for Gao Lam Thuy.
-
-## 📞 Support
-
-For support or questions, please contact the development team. 
+This should also be scheduled to run daily with a cron job. 

@@ -1,989 +1,575 @@
-const { createClient } = require('@supabase/supabase-js');
-const axios = require('axios');
+/**
+ * KiotViet Service
+ * Handles the actual API calls and data processing for KiotViet integration
+ */
 
+const axios = require('axios');
+const { createClient } = require('@supabase/supabase-js');
+
+// Create Supabase client
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY
 );
 
+// KiotViet API Configuration
+const KV_RETAILER = process.env.KIOTVIET_RETAILER;
+const KV_API_URL = process.env.KIOTVIET_PUBLIC_API_URL || 'https://public.kiotapi.com';
+
 /**
- * Get KiotViet token from Supabase
+ * Get KiotViet authentication token from Supabase
+ * @returns {Promise<string>} The authentication token
  */
 async function getKiotVietToken() {
-  const { data, error } = await supabase
-    .from("system")
-    .select("value")
-    .eq("title", "kiotviet")
-    .limit(1)
-    .single();
-
-  if (error) {
-    console.error("❌ Error fetching KiotViet token from system table:", error);
-    throw error;
-  }
-
-  return data.value;
-}
-
-/**
- * Fetch products from KiotViet API
- */
-async function fetchProducts(token) {
-  console.log("🔄 Starting product fetch from KiotViet API...");
-  
-  const allProducts = [];
-  let currentItem = 0;
-  const pageSize = 100;
-  let totalProducts = 0;
-  let page = 1;
-
-  do {
-    console.log(`📦 Fetching products batch ${page}: items ${currentItem+1}-${currentItem+pageSize}...`);
-    
-    const { data } = await axios.get(
-      `${process.env.KIOTVIET_BASE_URL}/products`,
-      {
-        headers: {
-          Retailer: "gaolamthuy",
-          Authorization: `Bearer ${token}`,
-        },
-        params: {
-          pageSize: pageSize,
-          currentItem: currentItem,
-          includeInventory: true,
-        },
-      }
-    );
-
-    // Add the fetched products to the allProducts array
-    const batchProducts = data.data || [];
-    allProducts.push(...batchProducts);
-    
-    // Get the total number of products
-    totalProducts = data.total || 0; 
-    
-    // Log progress
-    const progress = ((allProducts.length / totalProducts) * 100).toFixed(1);
-    console.log(`✅ Batch ${page} complete: ${batchProducts.length} products (Total: ${allProducts.length}/${totalProducts}, ${progress}%)`);
-    
-    // Move to the next page
-    currentItem += pageSize;
-    page++;
-    
-    // Add a small delay to avoid rate limiting
-    await new Promise(resolve => setTimeout(resolve, 300));
-  } while (currentItem < totalProducts);
-
-  console.log(`🎉 Product fetch complete: ${allProducts.length} products retrieved`);
-  return allProducts;
-}
-
-/**
- * Fetch customers from KiotViet API with pagination
- */
-async function fetchCustomers(token) {
-  console.log("🔄 Starting customer fetch from KiotViet API...");
-  
-  const allCustomers = [];
-  let currentItem = 0;
-  const pageSize = 100;
-  let totalCustomers = 0;
-  let page = 1;
-
-  do {
-    console.log(`👤 Fetching customers batch ${page}: items ${currentItem+1}-${currentItem+pageSize}...`);
-    
-    const { data } = await axios.get(
-      `${process.env.KIOTVIET_BASE_URL}/customers`,
-      {
-        headers: {
-          Retailer: "gaolamthuy",
-          Authorization: `Bearer ${token}`,
-        },
-        params: {
-          pageSize: pageSize,
-          currentItem: currentItem,
-          includeCustomerGroup: true,
-        },
-      }
-    );
-
-    // Add the fetched customers to the allCustomers array
-    const batchCustomers = data.data || [];
-    allCustomers.push(...batchCustomers);
-    
-    // Get the total number of customers
-    totalCustomers = data.total || 0; 
-    
-    // Log progress
-    const progress = ((allCustomers.length / totalCustomers) * 100).toFixed(1);
-    console.log(`✅ Batch ${page} complete: ${batchCustomers.length} customers (Total: ${allCustomers.length}/${totalCustomers}, ${progress}%)`);
-    
-    // Move to the next page
-    currentItem += pageSize;
-    page++;
-    
-    // Add a small delay to avoid rate limiting
-    await new Promise(resolve => setTimeout(resolve, 300));
-  } while (currentItem < totalCustomers);
-
-  console.log(`🎉 Customer fetch complete: ${allCustomers.length} customers retrieved`);
-  return allCustomers;
-}
-
-/**
- * Import products into Supabase
- */
-async function importProducts(products) {
-  console.log("🚀 Starting product import process...");
-  console.log(`📊 Total products to import: ${products.length}`);
-
-  // Clean tables - modified to be more thorough
-  console.log("🧹 Cleaning inventory and product tables...");
   try {
-    // Delete everything from the inventory table first (because of foreign key constraints)
-    const { error: invError } = await supabase
-      .from("kiotviet_inventories")
-      .delete()
-      .gte("id", 0);
-    
-    if (invError) {
-      console.error("⚠️ Warning clearing inventory table:", invError.message);
+    // Get token directly from system table
+    const { data, error } = await supabase
+      .from('system')
+      .select('value')
+      .eq('title', 'kiotviet')
+      .single();
+      
+    if (error) {
+      console.error("Error retrieving KiotViet token:", error.message);
+      throw new Error(`Failed to retrieve KiotViet token: ${error.message}`);
     }
     
-    // Then delete everything from the products table
-    const { error: prodError } = await supabase
-      .from("kiotviet_products")
-      .delete()
-      .gte("id", 0);
+    if (!data || !data.value) {
+      console.error("No KiotViet token found in system table");
+      throw new Error("No KiotViet token available");
+    }
     
-    if (prodError) {
-      console.error("⚠️ Warning clearing products table:", prodError.message);
-      console.log("⚠️ Will attempt to use upsert instead of insert");
+    // Handle token based on how it's stored
+    if (typeof data.value === 'string') {
+      // Token is stored directly as a string
+      console.log("Using KiotViet token from system table (stored as string)");
+      return data.value;
+    } else if (typeof data.value === 'object' && data.value.token) {
+      // Token is stored as an object with a token property
+      console.log("Using KiotViet token from system table (stored as object)");
+      return data.value.token;
     } else {
-      console.log("✅ Tables cleared successfully");
+      console.error("Token is not properly stored in the system table");
+      throw new Error("Token format in system table is invalid");
     }
   } catch (error) {
-    console.error("❌ Error clearing tables:", error);
-    console.log("⚠️ Will attempt to use upsert instead of insert");
+    console.error("Error getting KiotViet token:", error.message);
+    throw error;
   }
+}
 
-  // Prepare arrays
-  const productRecords = [];
-  
-  console.log("🔄 Processing product data...");
-  let processedCount = 0;
+/**
+ * Get KiotViet API headers with authentication
+ * @returns {Promise<Object>} Headers for API requests
+ */
+async function getKiotVietHeaders() {
+  const token = await getKiotVietToken();
+  return {
+    'Retailer': KV_RETAILER,
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  };
+}
 
-  for (const product of products) {
-    productRecords.push({
-      kiotviet_id: product.id,
-      retailer_id: product.retailerId,
-      code: product.code,
-      bar_code: product.barCode || "",
-      name: product.name,
-      full_name: product.fullName,
-      category_id: product.categoryId,
-      category_name: product.categoryName,
-      allows_sale: product.allowsSale,
-      type: product.type,
-      has_variants: product.hasVariants,
-      base_price: product.basePrice,
-      weight: product.weight,
-      unit: product.unit,
-      master_product_id: product.masterProductId || null,
-      master_unit_id: product.masterUnitId || null,
-      conversion_value: product.conversionValue,
-      description: product.description || "",
-      modified_date: product.modifiedDate,
-      created_date: product.createdDate,
-      is_active: product.isActive,
-      order_template: product.orderTemplate || "",
-      is_lot_serial_control: product.isLotSerialControl,
-      is_batch_expire_control: product.isBatchExpireControl,
-      trade_mark_name: product.tradeMarkName || "",
-      trade_mark_id: product.tradeMarkId || null,
-      images: product.images ? product.images : [],
-    });
-    
-    processedCount++;
-    
-    // Log progress every 100 products
-    if (processedCount % 100 === 0 || processedCount === products.length) {
-      const progress = ((processedCount / products.length) * 100).toFixed(1);
-      console.log(`⏳ Processed ${processedCount}/${products.length} products (${progress}%)`);
-    }
-  }
+/**
+ * Fetch all pages of data from a KiotViet API endpoint
+ * @param {string} endpoint - API endpoint path
+ * @param {Object} params - Query parameters
+ * @returns {Promise<Array>} All results combined from paged API
+ */
+async function fetchAllPages(endpoint, params = {}) {
+  try {
+    let allResults = [];
+    let currentPage = 1;
+    let hasMorePages = true;
+    const pageSize = 100;
+    const headers = await getKiotVietHeaders();
 
-  // Insert products in batches of 100
-  console.log("💾 Inserting products into database...");
-  const batchSize = 100;
-  let insertedCount = 0;
-  let batchCount = 0;
-  
-  for (let i = 0; i < productRecords.length; i += batchSize) {
-    batchCount++;
-    const batch = productRecords.slice(i, i + batchSize);
-    console.log(`📦 Inserting batch ${batchCount}: products ${i+1}-${Math.min(i+batchSize, productRecords.length)}...`);
-    
-    // Use upsert instead of insert to handle potential duplicates
-    const { error: productError } = await supabase
-      .from("kiotviet_products")
-      .upsert(batch, { 
-        onConflict: 'kiotviet_id',
-        ignoreDuplicates: false // Update if duplicate found
-      });
+    while (hasMorePages) {
+      console.log(`📄 Fetching ${endpoint} - Page ${currentPage} (${allResults.length} items so far)`);
       
-    if (productError) {
-      console.error(`❌ Error inserting batch ${batchCount}:`, productError);
-      throw productError;
-    }
-    
-    insertedCount += batch.length;
-    const progress = ((insertedCount / productRecords.length) * 100).toFixed(1);
-    console.log(`✅ Batch ${batchCount} complete: ${insertedCount}/${productRecords.length} products inserted (${progress}%)`);
-    
-    // Add a small delay to avoid overwhelming the database
-    await new Promise(resolve => setTimeout(resolve, 300));
-  }
+      const response = await axios.get(`${KV_API_URL}${endpoint}`, {
+        headers,
+        params: {
+          ...params,
+          pageSize,
+          currentItem: (currentPage - 1) * pageSize
+        }
+      });
 
-  console.log(`🎉 Product import complete: ${insertedCount} products imported successfully`);
-  
-  // Insert inventories in batches
-  if (insertedCount > 0) {
-    console.log("\n💾 Processing inventory data...");
-    
-    // Fetch all products to get their IDs
-    const { data: allProducts } = await supabase
-      .from("kiotviet_products")
-      .select("id, kiotviet_id");
-    
-    if (!allProducts) {
-      console.error("❌ Error fetching products for inventory processing");
-      return { success: false, message: "Failed to fetch products for inventory" };
+      const { data, total } = response.data;
+      
+      if (!data || data.length === 0) {
+        hasMorePages = false;
+      } else {
+        allResults = [...allResults, ...data];
+        
+        if (allResults.length >= total) {
+          hasMorePages = false;
+        } else {
+          currentPage++;
+        }
+      }
     }
+
+    console.log(`✅ Fetched ${allResults.length} total items from ${endpoint}`);
+    return allResults;
+  } catch (error) {
+    console.error(`❌ Error fetching data from ${endpoint}:`, error.message);
+    throw error;
+  }
+}
+
+/**
+ * Fetch and save products from KiotViet API
+ * @returns {Promise<Object>} Results of the operation
+ */
+async function cloneProducts() {
+  try {
+    console.log("🔄 Starting product sync process");
     
-    // Create a map of KiotViet IDs to local product IDs
-    const productIdMap = {};
-    allProducts.forEach(product => {
-      productIdMap[product.kiotviet_id] = product.id;
+    // Fetch products from KiotViet API
+    const products = await fetchAllPages('/products', { 
+      includeInventory: true
     });
     
-    // Prepare inventory records
-    const inventoryRecords = [];
+    if (products.length === 0) {
+      return { success: true, message: "No products found to sync", count: 0 };
+    }
+    
+    console.log(`📦 Processing ${products.length} products...`);
+    
+    // Process in batches
+    const batchSize = 50;
+    let successCount = 0;
+    let errorCount = 0;
     let inventoryCount = 0;
     
-    for (const product of products) {
-      if (product.inventories && product.inventories.length > 0) {
-        for (const inventory of product.inventories) {
-          // Skip if we don't have a local product ID
-          if (!productIdMap[product.id]) {
-            console.warn(`⚠️ No local product ID found for KiotViet product ID: ${product.id}`);
+    for (let i = 0; i < products.length; i += batchSize) {
+      const batch = products.slice(i, Math.min(i + batchSize, products.length));
+      
+      console.log(`🔄 Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(products.length/batchSize)}`);
+      
+      const productRows = [];
+      
+      for (const product of batch) {
+        try {
+          // Map KiotViet product data to our database structure
+          productRows.push({
+            kiotviet_id: product.id,
+            retailer_id: product.retailerId,
+            code: product.code,
+            bar_code: product.barCode || '',
+            name: product.name,
+            full_name: product.fullName || product.name,
+            category_id: product.categoryId,
+            category_name: product.categoryName,
+            allows_sale: product.allowsSale,
+            type: product.type,
+            has_variants: product.hasVariants,
+            base_price: product.basePrice,
+            weight: product.weight || null,
+            unit: product.unit,
+            master_product_id: product.masterProductId || null,
+            master_unit_id: product.masterUnitId || null,
+            conversion_value: product.conversionValue,
+            description: product.description || '',
+            modified_date: product.modifiedDate ? new Date(product.modifiedDate) : null,
+            created_date: product.createdDate ? new Date(product.createdDate) : null,
+            is_active: product.isActive,
+            order_template: product.orderTemplate || '',
+            is_lot_serial_control: product.isLotSerialControl || false,
+            is_batch_expire_control: product.isBatchExpireControl || false,
+            trade_mark_name: product.tradeMarkName || '',
+            trade_mark_id: product.tradeMarkId || null,
+            images: product.images || [],
+            synced_at: new Date()
+          });
+          
+          successCount++;
+        } catch (error) {
+          console.error(`❌ Error processing product ${product.code}:`, error.message);
+          errorCount++;
+        }
+      }
+      
+      if (productRows.length > 0) {
+        // Upsert products to kv_products table
+        const { error } = await supabase
+          .from('kv_products')
+          .upsert(productRows, { 
+            onConflict: 'kiotviet_id',
+            ignoreDuplicates: false
+          });
+          
+        if (error) {
+          console.error("❌ Error upserting products:", error);
+          errorCount += productRows.length;
+          successCount -= productRows.length;
+          continue; // Skip processing inventories if products failed
+        }
+        
+        // Process inventories for each product
+        console.log(`📦 Processing inventories for ${productRows.length} products`);
+        
+        // Get product IDs mapping
+        const { data: productMappings, error: mappingError } = await supabase
+          .from('kv_products')
+          .select('id, kiotviet_id')
+          .in('kiotviet_id', productRows.map(p => p.kiotviet_id));
+          
+        if (mappingError) {
+          console.error("❌ Error getting product mappings:", mappingError);
+          continue;
+        }
+        
+        // Create a lookup map for product IDs
+        const productIdMap = {};
+        for (const mapping of productMappings) {
+          productIdMap[mapping.kiotviet_id] = mapping.id;
+        }
+        
+        // Process inventories in batches
+        for (const product of batch) {
+          if (!product.inventories || !Array.isArray(product.inventories)) {
             continue;
           }
           
-          inventoryRecords.push({
-            product_id: productIdMap[product.id],
-            kiotviet_product_id: product.id,
-            product_code: inventory.productCode,
-            product_name: inventory.productName,
-            branch_id: inventory.branchId,
-            branch_name: inventory.branchName,
-            cost: inventory.cost,
-            on_hand: inventory.onHand,
-            reserved: inventory.reserved,
-            actual_reserved: inventory.actualReserved,
-            min_quantity: inventory.minQuantity,
-            max_quantity: inventory.maxQuantity,
-            is_active: inventory.isActive,
-            on_order: inventory.onOrder
+          const productId = productIdMap[product.id];
+          if (!productId) {
+            console.warn(`⚠️ Could not find database ID for product ${product.id} (${product.code})`);
+            continue;
+          }
+          
+          const inventoryRows = [];
+          
+          for (const inventory of product.inventories) {
+            inventoryRows.push({
+              product_id: productId,
+              branch_id: inventory.branchId,
+              branch_name: inventory.branchName,
+              on_hand: inventory.onHand || 0,
+              on_sales: inventory.onHand || 0,  // Assuming on_sales is the same as onHand if not provided
+              reserved: inventory.reserved || 0,
+              minimum_inventory: inventory.minQuantity || 0,
+              last_sync: new Date(),
+              synced_at: new Date()
+            });
+          }
+          
+          if (inventoryRows.length > 0) {
+            // Delete existing inventories for this product
+            const { error: deleteError } = await supabase
+              .from('kv_product_inventories')
+              .delete()
+              .eq('product_id', productId);
+              
+            if (deleteError) {
+              console.error(`❌ Error deleting inventories for product ${product.code}:`, deleteError);
+              continue;
+            }
+            
+            // Insert new inventories
+            const { error: insertError, count: insertCount } = await supabase
+              .from('kv_product_inventories')
+              .insert(inventoryRows);
+              
+            if (insertError) {
+              console.error(`❌ Error inserting inventories for product ${product.code}:`, insertError);
+            } else {
+              inventoryCount += inventoryRows.length;
+            }
+          }
+        }
+      }
+    }
+    
+    console.log(`✅ Completed product sync: ${successCount} products, ${inventoryCount} inventories`);
+    
+    return {
+      success: true,
+      message: `Products synced successfully: ${successCount} products, ${inventoryCount} inventories`,
+      count: {
+        total: products.length,
+        success: successCount,
+        error: errorCount,
+        inventories: inventoryCount
+      }
+    };
+  } catch (error) {
+    console.error("❌ Error in product sync:", error);
+    throw error;
+  }
+}
+
+/**
+ * Fetch and clone customers from KiotViet API to Supabase
+ * @returns {Promise<Object>} Results of the operation
+ */
+async function cloneCustomers() {
+  try {
+    console.log("🔄 Starting customer clone process");
+    
+    // Fetch customers from KiotViet API
+    const customers = await fetchAllPages('/customers', { 
+      includeRemoveIds: true
+    });
+    
+    if (customers.length === 0) {
+      return { success: true, message: "No customers found to clone", count: 0 };
+    }
+    
+    console.log(`👥 Processing ${customers.length} customers...`);
+    
+    // Process in batches
+    const batchSize = 50;
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (let i = 0; i < customers.length; i += batchSize) {
+      const batch = customers.slice(i, Math.min(i + batchSize, customers.length));
+      
+      console.log(`🔄 Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(customers.length/batchSize)}`);
+      
+      const customerRows = [];
+      
+      for (const customer of batch) {
+        try {
+          // Map KiotViet customer data to our database structure based on the schema
+          customerRows.push({
+            kiotviet_id: customer.id,
+            code: customer.code,
+            name: customer.name,
+            retailer_id: customer.retailerId,
+            branch_id: customer.branchId,
+            location_name: customer.locationName || '',
+            ward_name: customer.wardName || '',
+            modified_date: customer.modifiedDate ? new Date(customer.modifiedDate) : null,
+            created_date: customer.createdDate ? new Date(customer.createdDate) : null,
+            type: customer.type,
+            groups: customer.groups || '',
+            debt: customer.debt || 0,
+            contact_number: customer.contactNumber || '',
+            comments: customer.comments || '',
+            address: customer.address || '',
+            synced_at: new Date()
           });
           
-          inventoryCount++;
-        }
-      }
-    }
-    
-    console.log(`📊 Total inventory records to insert: ${inventoryCount}`);
-    
-    // Insert inventories in batches
-    if (inventoryCount > 0) {
-      const invBatchSize = 100;
-      let invInsertedCount = 0;
-      let invBatchCount = 0;
-      
-      while (invInsertedCount < inventoryRecords.length) {
-        const batch = inventoryRecords.slice(
-          invInsertedCount,
-          invInsertedCount + invBatchSize
-        );
-        
-        try {
-          const { error: invInsertError } = await supabase
-            .from("kiotviet_inventories")
-            .insert(batch);
-          
-          if (invInsertError) {
-            console.error(`❌ Error inserting inventory batch ${invBatchCount}:`, invInsertError);
-          } else {
-            invInsertedCount += batch.length;
-            invBatchCount++;
-            console.log(`✅ Inserted inventory batch ${invBatchCount}: ${invInsertedCount}/${inventoryRecords.length} records`);
-          }
+          successCount++;
         } catch (error) {
-          console.error(`❌ Exception inserting inventory batch ${invBatchCount}:`, error);
+          console.error(`❌ Error processing customer ${customer.code}:`, error.message);
+          errorCount++;
         }
-        
-        // Small delay to avoid overwhelming the database
-        await new Promise(resolve => setTimeout(resolve, 200));
       }
       
-      console.log(`✅ Inserted ${invInsertedCount} inventory records in ${invBatchCount} batches`);
-    } else {
-      console.log("⚠️ No inventory records to insert");
-    }
-  }
-
-  // Return the final result
-  return {
-    success: true,
-    count: insertedCount,
-    message: `Successfully imported ${insertedCount} products`,
-  };
-}
-
-/**
- * Import customers into Supabase
- */
-async function importCustomers(customers) {
-  console.log("🚀 Starting customer import process...");
-  console.log(`📊 Total customers to import: ${customers.length}`);
-
-  try {
-    console.log("🧹 Cleaning database tables for customer import...");
-    
-    // First delete all invoice details and payments to remove dependencies
-    const { error: detailsError } = await supabase
-      .from('kiotviet_invoice_details')
-      .delete()
-      .neq('id', 0);
-    
-    if (detailsError) {
-      console.error("⚠️ Warning clearing invoice details:", detailsError.message);
+      if (customerRows.length > 0) {
+        // Upsert customers to kv_customers table
+        const { error } = await supabase
+          .from('kv_customers')
+          .upsert(customerRows, { 
+            onConflict: 'kiotviet_id',
+            ignoreDuplicates: false
+          });
+          
+        if (error) {
+          console.error("❌ Error upserting customers:", error);
+          errorCount += customerRows.length;
+          successCount -= customerRows.length;
+        }
+      }
     }
     
-    const { error: paymentsError } = await supabase
-      .from('kiotviet_invoice_payments')
-      .delete()
-      .neq('id', 0);
-    
-    if (paymentsError) {
-      console.error("⚠️ Warning clearing invoice payments:", paymentsError.message);
-    }
-    
-    // Then delete all invoices
-    const { error: invoicesError } = await supabase
-      .from('kiotviet_invoices')
-      .delete()
-      .neq('id', 0);
-    
-    if (invoicesError) {
-      console.error("⚠️ Warning clearing invoices:", invoicesError.message);
-    }
-    
-    // Finally delete all customers
-    const { error: deleteError } = await supabase
-      .from("kiotviet_customers")
-      .delete()
-      .neq("id", 0);
-    
-    if (deleteError) {
-      console.error("❌ Error clearing customers table:", deleteError);
-      // Try an alternative approach using upsert instead of failing
-    }
-    
-    console.log("✅ Tables cleared successfully");
-  } catch (error) {
-    console.error("❌ Error clearing tables:", error);
-    console.log("⚠️ Will attempt to use upsert instead of insert");
-  }
-
-  // Prepare customer records
-  console.log("🔄 Processing customer data...");
-  let processedCount = 0;
-  
-  const customerRecords = customers.map(customer => {
-    processedCount++;
-    
-    // Log progress every 100 customers
-    if (processedCount % 100 === 0 || processedCount === customers.length) {
-      const progress = ((processedCount / customers.length) * 100).toFixed(1);
-      console.log(`⏳ Processed ${processedCount}/${customers.length} customers (${progress}%)`);
-    }
+    console.log(`✅ Completed customer clone: ${successCount} customers processed, ${errorCount} errors`);
     
     return {
-      kiotviet_id: customer.id,
-      code: customer.code,
-      name: customer.name,
-      retailer_id: customer.retailerId,
-      branch_id: customer.branchId,
-      location_name: customer.locationName || "",
-      ward_name: customer.wardName || "",
-      modified_date: customer.modifiedDate,
-      created_date: customer.createdDate,
-      type: customer.type || null,
-      groups: customer.groups || null,
-      debt: customer.debt || 0,
-      contact_number: customer.contactNumber || "",
-      comments: customer.comments || "",
-      address: customer.address || ""
-    };
-  });
-
-  // Remove duplicates based on kiotviet_id
-  const uniqueCustomerRecords = Array.from(new Map(customerRecords.map(item => [item.kiotviet_id, item])).values());
-  console.log(`🔍 Found ${customerRecords.length - uniqueCustomerRecords.length} duplicate records`);
-  console.log(`📦 Preparing to import ${uniqueCustomerRecords.length} unique customers`);
-
-  try {
-    // Insert customers in batches of 100
-    console.log("💾 Inserting customers into database...");
-    const batchSize = 100;
-    let insertedCount = 0;
-    let batchCount = 0;
-    
-    for (let i = 0; i < uniqueCustomerRecords.length; i += batchSize) {
-      batchCount++;
-      const batch = uniqueCustomerRecords.slice(i, i + batchSize);
-      console.log(`📦 Processing batch ${batchCount}: customers ${i+1}-${Math.min(i+batchSize, uniqueCustomerRecords.length)}...`);
-      
-      // Use upsert instead of insert to handle existing records
-      const { error } = await supabase
-        .from("kiotviet_customers")
-        .upsert(batch, { 
-          onConflict: 'kiotviet_id',
-          ignoreDuplicates: false
-        });
-        
-      if (error) {
-        console.error(`❌ Error in batch ${batchCount}:`, error);
-        throw error;
+      success: true,
+      message: `Customers cloned successfully: ${successCount} processed, ${errorCount} errors`,
+      count: {
+        total: customers.length,
+        success: successCount,
+        error: errorCount
       }
-      
-      insertedCount += batch.length;
-      const progress = ((insertedCount / uniqueCustomerRecords.length) * 100).toFixed(1);
-      console.log(`✅ Batch ${batchCount} complete: ${insertedCount}/${uniqueCustomerRecords.length} customers imported (${progress}%)`);
-      
-      // Add a small delay to avoid overwhelming the database
-      await new Promise(resolve => setTimeout(resolve, 300));
-    }
-
-    console.log(`🎉 Customer import complete: ${insertedCount} customers imported successfully`);
-    
-    return {
-      customersCount: insertedCount
     };
   } catch (error) {
-    console.error("❌ Error cloning KiotViet customers:", error);
+    console.error("❌ Error in customer clone:", error);
     throw error;
   }
 }
 
 /**
- * Fetch invoices from KiotViet API for a specific date range
+ * Fetch and clone invoices for a specific month from KiotViet API
+ * @param {number|string} year - The year (e.g., 2023)
+ * @param {number|string} month - The month (1-12)
+ * @returns {Promise<Object>} Results of the operation
  */
-async function fetchInvoicesForDateRange(startDate, endDate, pageSize = 100, currentItem = 0) {
+async function cloneInvoicesByMonth(year, month) {
   try {
-    // Get token from the system table
-    const token = await getKiotVietToken();
-    
-    const response = await axios.get(`${process.env.KIOTVIET_BASE_URL}/invoices`, {
-      params: {
-        includePayment: true,
-        pageSize: pageSize,
-        currentItem: currentItem,
-        fromPurchaseDate: startDate,
-        toPurchaseDate: endDate
-      },
-      headers: {
-        'Retailer': 'gaolamthuy',
-        'Authorization': `Bearer ${token}`
-      }
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Error fetching invoices:', error);
-    throw error;
-  }
-}
-
-/**
- * Save a KiotViet invoice to Supabase
- */
-async function saveInvoiceToSupabase(invoice, logEnabled = false) {
-  try {
-    if (logEnabled) {
-      console.log(`🔍 Processing invoice: ${invoice.code} (KiotViet ID: ${invoice.id})`);
-    }
-    
-    // Check if the customer exists in our database
-    let localCustomerId = null;
-    if (invoice.customerId) {
-      // Check if customer exists by KiotViet ID
-      const { data: customerData } = await supabase
-        .from('kiotviet_customers')
-        .select('id')
-        .eq('kiotviet_id', invoice.customerId)
-        .single();
-      
-      if (customerData) {
-        localCustomerId = customerData.id;
-        if (logEnabled) {
-          console.log(`✅ Found customer with ID: ${localCustomerId}`);
-        }
-      }
-    }
-    
-    // Insert new invoice 
-    const { data: newInvoice, error: insertError } = await supabase
-      .from('kiotviet_invoices')
-      .insert([{
-        kiotviet_id: invoice.id,
-        uuid: invoice.uuid,
-        code: invoice.code,
-        purchase_date: invoice.purchaseDate,
-        branch_id: invoice.branchId,
-        branch_name: invoice.branchName,
-        sold_by_id: invoice.soldById,
-        sold_by_name: invoice.soldByName,
-        kiotviet_customer_id: invoice.customerId,
-        customer_id: localCustomerId,
-        customer_code: invoice.customerCode,
-        customer_name: invoice.customerName,
-        order_code: invoice.orderCode,
-        total: invoice.total,
-        total_payment: invoice.totalPayment,
-        status: invoice.status,
-        status_value: invoice.statusValue,
-        using_cod: invoice.usingCod,
-        created_date: invoice.createdDate
-      }])
-      .select('id')
-      .single();
-    
-    if (insertError) throw insertError;
-    const invoiceId = newInvoice.id;
-
-    // Process invoice details
-    if (invoice.invoiceDetails && invoice.invoiceDetails.length > 0) {
-      // Get all product_ids by kiotviet_ids
-      const kiotvietProductIds = invoice.invoiceDetails.map(detail => detail.productId);
-      
-      const { data: productsData } = await supabase
-        .from('kiotviet_products')
-        .select('id, kiotviet_id')
-        .in('kiotviet_id', kiotvietProductIds);
-      
-      // Create a mapping from kiotviet_id to local id
-      const productIdMap = {};
-      if (productsData) {
-        productsData.forEach(product => {
-          productIdMap[product.kiotviet_id] = product.id;
-        });
-      }
-      
-      // Create invoice details array
-      const detailsArray = invoice.invoiceDetails.map(detail => ({
-        invoice_id: invoiceId,
-        kiotviet_product_id: detail.productId,
-        product_id: productIdMap[detail.productId] || null,
-        product_code: detail.productCode,
-        product_name: detail.productName,
-        category_id: detail.categoryId,
-        category_name: detail.categoryName,
-        quantity: detail.quantity,
-        price: detail.price,
-        discount: detail.discount,
-        sub_total: detail.subTotal,
-        note: detail.note,
-        serial_numbers: detail.serialNumbers,
-        return_quantity: detail.returnQuantity
-      }));
-      
-      const { error: detailsError } = await supabase
-        .from('kiotviet_invoice_details')
-        .insert(detailsArray);
-
-      if (detailsError) {
-        throw detailsError;
-      }
-    }
-
-    // Process payments
-    if (invoice.payments && invoice.payments.length > 0) {
-      const paymentsArray = invoice.payments.map(payment => ({
-        kiotviet_payment_id: payment.id,
-        invoice_id: invoiceId,
-        code: payment.code,
-        amount: payment.amount,
-        method: payment.method,
-        status: payment.status,
-        status_value: payment.statusValue,
-        trans_date: payment.transDate
-      }));
-      
-      const { error: paymentsError } = await supabase
-        .from('kiotviet_invoice_payments')
-        .insert(paymentsArray);
-
-      if (paymentsError) {
-        throw paymentsError;
-      }
-    }
-
-    return { id: invoiceId };
-  } catch (error) {
-    console.error(`❌ Lỗi xử lý hóa đơn ${invoice.code}: ${error.message}`);
-    throw error;
-  }
-}
-
-/**
- * Clone KiotViet invoices for a specific year
- */
-async function cloneInvoicesForYear(year) {
-  const results = {
-    success: 0,
-    failed: 0,
-    errors: []
-  };
-
-  try {
-    // First, clean up existing data for the year to avoid duplicates
-    const startOfYear = new Date(year, 0, 1).toISOString();
-    const endOfYear = new Date(year, 11, 31, 23, 59, 59).toISOString();
-    
-    console.log(`🧹 Xóa dữ liệu hóa đơn hiện có cho năm ${year}...`);
-    
-    // Get all invoice IDs for the year
-    const { data: existingInvoices } = await supabase
-      .from('kiotviet_invoices')
-      .select('id')
-      .gte('purchase_date', startOfYear)
-      .lte('purchase_date', endOfYear);
-    
-    if (existingInvoices && existingInvoices.length > 0) {
-      const invoiceIds = existingInvoices.map(inv => inv.id);
-      console.log(`🗑️ Tìm thấy ${invoiceIds.length} hóa đơn cũ, đang xóa...`);
-      
-      // Delete all invoice details and payments first (cascade doesn't always work reliably)
-      await supabase
-        .from('kiotviet_invoice_details')
-        .delete()
-        .in('invoice_id', invoiceIds);
-        
-      await supabase
-        .from('kiotviet_invoice_payments')
-        .delete()
-        .in('invoice_id', invoiceIds);
-      
-      // Then delete the invoices
-      await supabase
-        .from('kiotviet_invoices')
-        .delete()
-        .in('id', invoiceIds);
-      
-      console.log(`✅ Đã xóa ${invoiceIds.length} hóa đơn cũ`);
-    } else {
-      console.log(`ℹ️ Không tìm thấy hóa đơn nào cho năm ${year}`);
-    }
-  } catch (error) {
-    console.error(`❌ Lỗi khi xóa dữ liệu cũ: ${error.message}`);
-  }
-
-  // Initialize counters for progress tracking
-  let totalInvoicesProcessed = 0;
-  let totalInvoicesExpected = 0;
-  const MAX_DETAILED_LOGS = 10; // Only show detailed logs for first 10 invoices
-  
-  // Process each month
-  for (let month = 1; month <= 12; month++) {
-    const monthName = new Date(year, month - 1, 1).toLocaleString('vi-VN', { month: 'long' });
-    const startDate = new Date(year, month - 1, 1).toISOString();
-    const endDate = new Date(year, month, 0, 23, 59, 59).toISOString();
-    
-    try {
-      let hasMoreData = true;
-      let currentItem = 0;
-      const pageSize = 100;
-      const maxFailures = 5; // Maximum number of consecutive failures before stopping
-      let consecutiveFailures = 0;
-      
-      console.log(`\n🔄 Đang xử lý hóa đơn tháng ${month} (${monthName}) năm ${year}`);
-      
-      // Get total count for this month first
-      const initialResponse = await fetchInvoicesForDateRange(startDate, endDate, 1, 0);
-      const monthTotalInvoices = initialResponse.total || 0;
-      totalInvoicesExpected += monthTotalInvoices;
-      
-      console.log(`📊 Tháng ${month}: ${monthTotalInvoices} hóa đơn cần xử lý`);
-      
-      // Skip if no invoices for this month
-      if (monthTotalInvoices === 0) {
-        console.log(`  ℹ️ Không có hóa đơn nào trong tháng ${month}, bỏ qua...`);
-        continue;
-      }
-      
-      let monthProcessedCount = 0;
-      
-      while (hasMoreData) {
-        const response = await fetchInvoicesForDateRange(startDate, endDate, pageSize, currentItem);
-        
-        if (response.data.length === 0) {
-          console.log(`  ℹ️ Không còn hóa đơn nào, chuyển sang tháng tiếp theo`);
-          break;
-        }
-        
-        console.log(`  💼 Đang xử lý ${currentItem+1} đến ${Math.min(currentItem+pageSize, monthTotalInvoices)}/${monthTotalInvoices} hóa đơn`);
-        
-        for (const [index, invoice] of response.data.entries()) {
-          try {
-            // Only log details for the first few invoices
-            const shouldLog = totalInvoicesProcessed < MAX_DETAILED_LOGS;
-            await saveInvoiceToSupabase(invoice, shouldLog);
-            results.success++;
-            monthProcessedCount++;
-            totalInvoicesProcessed++;
-            consecutiveFailures = 0; // Reset failure counter on success
-            
-            // Show progress every 10 invoices
-            if (totalInvoicesProcessed % 10 === 0) {
-              const progress = ((totalInvoicesProcessed / totalInvoicesExpected) * 100).toFixed(1);
-              console.log(`  📈 Tiến độ: ${totalInvoicesProcessed}/${totalInvoicesExpected} (${progress}%), Tháng ${month}: ${monthProcessedCount}/${monthTotalInvoices}`);
-            }
-          } catch (error) {
-            results.failed++;
-            consecutiveFailures++;
-            
-            results.errors.push({
-              invoice_id: invoice.id,
-              code: invoice.code,
-              error: error.message
-            });
-            
-            // Stop processing if too many consecutive failures
-            if (consecutiveFailures >= maxFailures) {
-              console.error(`❌ Đã xảy ra ${maxFailures} lỗi liên tiếp, sẽ chuyển sang batch tiếp theo`);
-              break;
-            }
-          }
-        }
-        
-        // Update pagination logic: check if we've processed all items
-        currentItem += pageSize;
-        hasMoreData = currentItem < response.total;
-        
-        // Add delay to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-      
-      console.log(`✅ Hoàn thành xử lý ${monthProcessedCount}/${monthTotalInvoices} hóa đơn tháng ${month} năm ${year}`);
-    } catch (error) {
-      console.error(`❌ Lỗi xử lý tháng ${month} năm ${year}: ${error.message}`);
-      results.errors.push({
-        month,
-        year,
-        error: error.message
-      });
-    }
-  }
-
-  console.log(`\n=================================`);
-  console.log(`🎉 KẾT QUẢ CLONE HOÁ ĐƠN NĂM ${year}:`);
-  console.log(`✅ Thành công: ${results.success}/${totalInvoicesExpected} hóa đơn`);
-  console.log(`❌ Thất bại: ${results.failed} hóa đơn`);
-  
-  if (results.errors.length > 0) {
-    console.log(`\n⚠️ Đã xảy ra ${results.errors.length} lỗi trong quá trình xử lý`);
-    console.log(`⚠️ 5 lỗi đầu tiên:`);
-    results.errors.slice(0, 5).forEach(err => {
-      if (err.month) {
-        console.log(`   - Lỗi tháng ${err.month}: ${err.error}`);
-      } else {
-        console.log(`   - Hóa đơn ${err.code || err.invoice_id}: ${err.error}`);
-      }
-    });
-  }
-  
-  return results;
-}
-
-/**
- * Clone KiotViet invoices for a specific month in a year
- */
-async function cloneInvoicesForMonth(year, month) {
-  const results = {
-    success: 0,
-    failed: 0,
-    errors: []
-  };
-
-  try {
-    // Validate input
-    const yearNum = parseInt(year);
-    const monthNum = parseInt(month);
+    // Validate inputs
+    const yearNum = parseInt(year, 10);
+    const monthNum = parseInt(month, 10);
     
     if (isNaN(yearNum) || isNaN(monthNum) || monthNum < 1 || monthNum > 12) {
-      throw new Error(`Năm ${year} hoặc tháng ${month} không hợp lệ`);
+      throw new Error('Invalid year or month');
     }
     
-    const monthName = new Date(yearNum, monthNum - 1, 1).toLocaleString('vi-VN', { month: 'long' });
-    const startDate = new Date(yearNum, monthNum - 1, 1).toISOString();
-    const endDate = new Date(yearNum, monthNum, 0, 23, 59, 59).toISOString();
+    console.log(`🔄 Starting invoice clone process for ${yearNum}/${monthNum}`);
     
-    console.log(`\n=================================`);
-    console.log(`🧹 Xóa dữ liệu hóa đơn hiện có cho tháng ${monthNum} (${monthName}) năm ${yearNum}...`);
+    // Format month with leading zero if needed
+    const monthStr = monthNum.toString().padStart(2, '0');
     
-    // Get all invoice IDs for the specific month
-    const { data: existingInvoices } = await supabase
-      .from('kiotviet_invoices')
-      .select('id')
-      .gte('purchase_date', startDate)
-      .lte('purchase_date', endDate);
+    // Create date range for the month
+    const startDate = `${yearNum}-${monthStr}-01`;
+    // Calculate the last day of the month
+    const lastDay = new Date(yearNum, monthNum, 0).getDate();
+    const endDate = `${yearNum}-${monthStr}-${lastDay}`;
     
-    if (existingInvoices && existingInvoices.length > 0) {
-      const invoiceIds = existingInvoices.map(inv => inv.id);
-      console.log(`🗑️ Tìm thấy ${invoiceIds.length} hóa đơn cũ, đang xóa...`);
-      
-      // Delete all invoice details and payments first
-      await supabase
-        .from('kiotviet_invoice_details')
-        .delete()
-        .in('invoice_id', invoiceIds);
-        
-      await supabase
-        .from('kiotviet_invoice_payments')
-        .delete()
-        .in('invoice_id', invoiceIds);
-      
-      // Then delete the invoices
-      await supabase
-        .from('kiotviet_invoices')
-        .delete()
-        .in('id', invoiceIds);
-      
-      console.log(`✅ Đã xóa ${invoiceIds.length} hóa đơn cũ`);
-    } else {
-      console.log(`ℹ️ Không tìm thấy hóa đơn nào cho tháng ${monthNum} năm ${yearNum}`);
-    }
-
-    // Initialize counters for progress tracking
-    let totalInvoicesProcessed = 0;
-    const MAX_DETAILED_LOGS = 10; // Only show detailed logs for first 10 invoices
+    // Fetch invoices from KiotViet API
+    const invoices = await fetchAllPages('/invoices', { 
+      fromPurchaseDate: startDate,
+      toPurchaseDate: endDate,
+      includeInvoiceDetails: true
+    });
     
-    // Get total count for this month first
-    const initialResponse = await fetchInvoicesForDateRange(startDate, endDate, 1, 0);
-    const totalInvoices = initialResponse.total || 0;
-    
-    console.log(`\n🔄 Đang xử lý hóa đơn tháng ${monthNum} (${monthName}) năm ${yearNum}`);
-    console.log(`📊 Tổng cộng: ${totalInvoices} hóa đơn cần xử lý`);
-    
-    // Skip if no invoices for this month
-    if (totalInvoices === 0) {
-      console.log(`  ℹ️ Không có hóa đơn nào trong tháng ${monthNum}, bỏ qua...`);
-      return results;
+    if (invoices.length === 0) {
+      return { 
+        success: true, 
+        message: `No invoices found for ${yearNum}/${monthStr}`, 
+        count: 0 
+      };
     }
     
-    let hasMoreData = true;
-    let currentItem = 0;
-    const pageSize = 100;
-    const maxFailures = 5; // Maximum number of consecutive failures before stopping
-    let consecutiveFailures = 0;
-    let monthProcessedCount = 0;
+    console.log(`🧾 Processing ${invoices.length} invoices...`);
     
-    while (hasMoreData) {
-      const response = await fetchInvoicesForDateRange(startDate, endDate, pageSize, currentItem);
+    // Process in batches
+    const batchSize = 25;
+    let successCount = 0;
+    let errorCount = 0;
+    let detailsCount = 0;
+    
+    for (let i = 0; i < invoices.length; i += batchSize) {
+      const batch = invoices.slice(i, Math.min(i + batchSize, invoices.length));
       
-      if (response.data.length === 0) {
-        console.log(`  ℹ️ Không còn hóa đơn nào, kết thúc xử lý`);
-        break;
-      }
+      console.log(`🔄 Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(invoices.length/batchSize)}`);
       
-      console.log(`  💼 Đang xử lý ${currentItem+1} đến ${Math.min(currentItem+pageSize, totalInvoices)}/${totalInvoices} hóa đơn`);
-      
-      for (const [index, invoice] of response.data.entries()) {
+      // Process invoices in current batch
+      for (const invoice of batch) {
         try {
-          // Only log details for the first few invoices
-          const shouldLog = totalInvoicesProcessed < MAX_DETAILED_LOGS;
-          await saveInvoiceToSupabase(invoice, shouldLog);
-          results.success++;
-          monthProcessedCount++;
-          totalInvoicesProcessed++;
-          consecutiveFailures = 0; // Reset failure counter on success
-          
-          // Show progress every 10 invoices
-          if (totalInvoicesProcessed % 10 === 0) {
-            const progress = ((totalInvoicesProcessed / totalInvoices) * 100).toFixed(1);
-            console.log(`  📈 Tiến độ: ${totalInvoicesProcessed}/${totalInvoices} (${progress}%)`);
-          }
-        } catch (error) {
-          results.failed++;
-          consecutiveFailures++;
-          
-          results.errors.push({
-            invoice_id: invoice.id,
+          // Map KiotViet invoice data to our database structure
+          const invoiceData = {
+            kiotviet_id: invoice.id,
+            uuid: invoice.uuid || null,
             code: invoice.code,
-            error: error.message
-          });
+            purchase_date: invoice.purchaseDate ? new Date(invoice.purchaseDate) : null,
+            branch_id: invoice.branchId,
+            branch_name: invoice.branchName || '',
+            sold_by_id: invoice.soldById || null,
+            sold_by_name: invoice.soldByName || '',
+            kiotviet_customer_id: invoice.customerId || null,
+            customer_code: invoice.customerCode || '',
+            customer_name: invoice.customerName || '',
+            order_code: invoice.orderCode || '',
+            total: invoice.total || 0,
+            total_payment: invoice.totalPayment || 0,
+            status: invoice.status || null,
+            status_value: invoice.statusValue || '',
+            using_cod: invoice.usingCod || false,
+            created_date: invoice.createdDate ? new Date(invoice.createdDate) : null,
+            synced_at: new Date()
+          };
           
-          // Stop processing if too many consecutive failures
-          if (consecutiveFailures >= maxFailures) {
-            console.error(`❌ Đã xảy ra ${maxFailures} lỗi liên tiếp, sẽ chuyển sang batch tiếp theo`);
-            break;
+          // Insert or update invoice
+          const { data: savedInvoice, error: invoiceError } = await supabase
+            .from('kv_invoices')
+            .upsert([invoiceData], { 
+              onConflict: 'kiotviet_id',
+              ignoreDuplicates: false
+            })
+            .select();
+            
+          if (invoiceError) {
+            console.error(`❌ Error upserting invoice ${invoice.code}:`, invoiceError);
+            errorCount++;
+            continue;
           }
+          
+          // Process invoice details if available
+          if (invoice.invoiceDetails && Array.isArray(invoice.invoiceDetails) && savedInvoice && savedInvoice.length > 0) {
+            const invoiceId = savedInvoice[0].id;
+            
+            // Delete existing details for this invoice
+            const { error: deleteError } = await supabase
+              .from('kv_invoice_details')
+              .delete()
+              .eq('invoice_id', invoiceId);
+              
+            if (deleteError) {
+              console.error(`❌ Error deleting invoice details for invoice ${invoice.code}:`, deleteError);
+              continue;
+            }
+            
+            // Prepare details for batch insert
+            const detailsData = invoice.invoiceDetails.map(detail => ({
+              invoice_id: invoiceId,
+              kiotviet_product_id: detail.productId,
+              product_code: detail.productCode || '',
+              product_name: detail.productName || '',
+              category_id: detail.categoryId || null,
+              category_name: detail.categoryName || '',
+              quantity: detail.quantity || 0,
+              price: detail.price || 0,
+              discount: detail.discount || 0,
+              sub_total: detail.subTotal || 0,
+              note: detail.note || '',
+              serial_numbers: detail.serialNumbers || '',
+              return_quantity: detail.returnQuantity || 0,
+              synced_at: new Date()
+            }));
+            
+            if (detailsData.length > 0) {
+              // Insert new details
+              const { error: detailsError } = await supabase
+                .from('kv_invoice_details')
+                .insert(detailsData);
+                
+              if (detailsError) {
+                console.error(`❌ Error inserting details for invoice ${invoice.code}:`, detailsError);
+              } else {
+                detailsCount += detailsData.length;
+              }
+            }
+          }
+          
+          successCount++;
+        } catch (error) {
+          console.error(`❌ Error processing invoice ${invoice.code}:`, error.message);
+          errorCount++;
         }
       }
-      
-      // Update pagination logic: check if we've processed all items
-      currentItem += pageSize;
-      hasMoreData = currentItem < response.total;
-      
-      // Add delay to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 1000));
     }
     
-    console.log(`✅ Hoàn thành xử lý ${monthProcessedCount}/${totalInvoices} hóa đơn tháng ${monthNum} năm ${yearNum}`);
+    console.log(`✅ Completed invoice clone: ${successCount} invoices, ${detailsCount} details, ${errorCount} errors`);
     
-    console.log(`\n=================================`);
-    console.log(`🎉 KẾT QUẢ CLONE HOÁ ĐƠN THÁNG ${monthNum} NĂM ${yearNum}:`);
-    console.log(`✅ Thành công: ${results.success}/${totalInvoices} hóa đơn`);
-    console.log(`❌ Thất bại: ${results.failed} hóa đơn`);
-    
-    if (results.errors.length > 0) {
-      console.log(`\n⚠️ Đã xảy ra ${results.errors.length} lỗi trong quá trình xử lý`);
-      console.log(`⚠️ 5 lỗi đầu tiên:`);
-      results.errors.slice(0, 5).forEach(err => {
-        console.log(`   - Hóa đơn ${err.code || err.invoice_id}: ${err.error}`);
-      });
-    }
-    
+    return {
+      success: true,
+      message: `Invoices for ${yearNum}/${monthStr} cloned successfully`,
+      count: {
+        total: invoices.length,
+        success: successCount,
+        error: errorCount,
+        details: detailsCount
+      }
+    };
   } catch (error) {
-    console.error(`❌ Lỗi: ${error.message}`);
-    results.errors.push({
-      error: error.message
-    });
+    console.error("❌ Error in invoice clone:", error);
+    throw error;
   }
-  
-  return results;
 }
 
 module.exports = {
   getKiotVietToken,
-  fetchProducts,
-  fetchCustomers,
-  importProducts,
-  importCustomers,
-  fetchInvoicesForDateRange,
-  saveInvoiceToSupabase,
-  cloneInvoicesForYear,
-  cloneInvoicesForMonth
+  getKiotVietHeaders,
+  fetchAllPages,
+  cloneProducts,
+  cloneCustomers,
+  cloneInvoicesByMonth
 }; 

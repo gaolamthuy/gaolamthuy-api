@@ -1,8 +1,20 @@
+/**
+ * Server Entry Point
+ * Starts the HTTP server and sets up scheduled tasks
+ */
+
 const app = require('./app');
+// Removed updateImageManifest reference
 
-const port = process.env.PORT || 3002;
+// Schedule manifest updates - every hour
+const scheduleManifestUpdates = () => {
+  console.log('📋 Skipping manifest updates - feature disabled');
+  // All manifest update code removed
+};
 
-// Start server
-app.listen(port, () => {
-  console.log(`🚀 Server is running on port ${port}`);
+// Start the server
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  scheduleManifestUpdates();
 }); 

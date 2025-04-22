@@ -1,7 +1,54 @@
+# Node modules and dependencies
 node_modules
+npm-debug.log
+yarn-error.log
+yarn-debug.log
+.pnp
+.pnp.js
+
+# Development and environment files
 .env
+.env.*
+.vscode
+.idea
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+.editorconfig
+
+# Source control
 .git
+.github
 .gitignore
+.gitlab-ci.yml
+
+# Test and docs
+test
+tests
+__tests__
+coverage
+docs
+README.md
+CHANGELOG.md
+LICENSE
+*.md
+
+# Build artifacts
+dist
+build
+*.tsbuildinfo
+.next
+.nuxt
+
+# Docker files
 Dockerfile
 docker-compose.yml
 .dockerignore
+
+# Other
+.eslintcache
+.stylelintcache
+uploads/*
+!uploads/.gitkeep
+!uploads/temp/.gitkeep
