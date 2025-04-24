@@ -248,6 +248,8 @@ async function cloneProducts() {
               product_id: productId,
               branch_id: inventory.branchId,
               branch_name: inventory.branchName,
+              cost: inventory.cost,
+              product_name: inventory.productName,
               on_hand: inventory.onHand || 0,
               on_sales: inventory.onHand || 0,  // Assuming on_sales is the same as onHand if not provided
               reserved: inventory.reserved || 0,
@@ -312,7 +314,8 @@ async function cloneCustomers() {
     
     // Fetch customers from KiotViet API
     const customers = await fetchAllPages('/customers', { 
-      includeRemoveIds: true
+      includeRemoveIds: true,
+      includeCustomerGroup: true
     });
     
     if (customers.length === 0) {
@@ -474,7 +477,8 @@ async function cloneInvoicesByMonth(year, month) {
             status_value: invoice.statusValue || '',
             using_cod: invoice.usingCod || false,
             created_date: invoice.createdDate ? new Date(invoice.createdDate) : null,
-            synced_at: new Date()
+            synced_at: new Date(),
+            source: 'kiotviet'
           };
           
           // Insert or update invoice
@@ -643,7 +647,8 @@ async function cloneInvoicesByDay(year, month, day) {
             status_value: invoice.statusValue || '',
             using_cod: invoice.usingCod || false,
             created_date: invoice.createdDate ? new Date(invoice.createdDate) : null,
-            synced_at: new Date()
+            synced_at: new Date(),
+            source: 'kiotviet'
           };
           
           // Insert or update invoice
