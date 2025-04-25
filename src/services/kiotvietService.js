@@ -478,7 +478,7 @@ async function cloneInvoicesByMonth(year, month) {
             using_cod: invoice.usingCod || false,
             created_date: invoice.createdDate ? new Date(invoice.createdDate) : null,
             synced_at: new Date(),
-            source: 'kiotviet'
+            // source: 'kiotviet'
           };
           
           // Insert or update invoice
@@ -648,7 +648,7 @@ async function cloneInvoicesByDay(year, month, day) {
             using_cod: invoice.usingCod || false,
             created_date: invoice.createdDate ? new Date(invoice.createdDate) : null,
             synced_at: new Date(),
-            source: 'kiotviet'
+            // source: 'kiotviet'
           };
           
           // Insert or update invoice
@@ -739,6 +739,93 @@ async function cloneInvoicesByDay(year, month, day) {
   }
 }
 
+/**
+ * Fetch and clone a single invoice by its KiotViet code
+ * @param {string} invoiceCode - The KiotViet invoice code (e.g., 'HD057370')
+ * @returns {Promise<Object>} Result of the operation
+ */
+async function cloneInvoiceByCode(invoiceCode) {
+  try {
+    if (!invoiceCode) throw new Error('Invoice code is required');
+    console.log(`🔄 Cloning single invoice from KiotViet for code ${invoiceCode}`);
+
+    // Fetch invoice by code
+    const headers = await getKiotVietHeaders();
+    const url = `${KV_API_URL}/invoices/code/${invoiceCode}`;
+    console.log('➡️ Fetching invoice by code from KiotViet:', url);
+    const resp = await axios.get(url, { headers });
+    const invoice = resp.data;
+    if (!invoice || !invoice.id) {
+      return { success: false, message: `No invoice found for code ${invoiceCode}` };
+    }
+
+    // Map invoice data
+    const invoiceRow = {
+      kiotviet_id:      invoice.id,
+      uuid:             invoice.uuid || null,
+      code:             invoice.code,
+      purchase_date:    invoice.purchaseDate ? new Date(invoice.purchaseDate) : null,
+      branch_id:        invoice.branchId,
+      branch_name:      invoice.branchName || '',
+      sold_by_id:       invoice.soldById || null,
+      sold_by_name:     invoice.soldByName || '',
+      kiotviet_customer_id: invoice.customerId || null,
+      customer_code:    invoice.customerCode || '',
+      customer_name:    invoice.customerName || '',
+      order_code:       invoice.orderCode || '',
+      total:            invoice.total || 0,
+      total_payment:    invoice.totalPayment || 0,
+      status:           invoice.status || null,
+      status_value:     invoice.statusValue || '',
+      using_cod:        invoice.usingCod || false,
+      created_date:     invoice.createdDate ? new Date(invoice.createdDate) : null,
+      synced_at:        new Date(),
+      sale_channel_name: invoice.SaleChannel.Name || 'gltpos',
+      // sale_channel_id:   invoice.SaleChannel.Id || 185336,
+      // source:           'kiotviet'
+    };
+
+    // Upsert invoice
+    const { data: saved, error: invErr } = await supabase
+      .from('kv_invoices')
+      .upsert([invoiceRow], { onConflict: 'kiotviet_id', ignoreDuplicates: false })
+      .select();
+    if (invErr) throw invErr;
+    const invoiceId = saved[0].id;
+
+    // Delete old details
+    await supabase.from('kv_invoice_details').delete().eq('invoice_id', invoiceId);
+
+    // Insert new details
+    if (invoice.invoiceDetails && Array.isArray(invoice.invoiceDetails)) {
+      const detailsRows = invoice.invoiceDetails.map(d => ({
+        invoice_id:           invoiceId,
+        kiotviet_product_id:  d.productId,
+        product_code:         d.productCode || '',
+        product_name:         d.productName || '',
+        category_id:          d.categoryId || null,
+        category_name:        d.categoryName || '',
+        quantity:             d.quantity || 0,
+        price:                d.price || 0,
+        discount:             d.discount || 0,
+        sub_total:            d.subTotal || 0,
+        note:                 d.note || '',
+        serial_numbers:       d.serialNumbers || '',
+        return_quantity:      d.returnQuantity || 0,
+        synced_at:            new Date()
+      }));
+      const { error: detErr } = await supabase.from('kv_invoice_details').insert(detailsRows);
+      if (detErr) console.error('❌ Error inserting invoice details:', detErr);
+    }
+
+    console.log(`✅ Cloned invoice ${invoiceCode} successfully (ID: ${invoiceId})`);
+    return { success: true, message: `Invoice ${invoiceCode} cloned`, id: invoiceId };
+  } catch (error) {
+    console.error('❌ Error in cloneInvoiceByCode:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   getKiotVietToken,
   getKiotVietHeaders,
@@ -746,5 +833,6 @@ module.exports = {
   cloneProducts,
   cloneCustomers,
   cloneInvoicesByMonth,
-  cloneInvoicesByDay
+  cloneInvoicesByDay,
+  cloneInvoiceByCode
 }; 

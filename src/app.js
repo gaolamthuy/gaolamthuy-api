@@ -5,6 +5,7 @@ const mediaRoutes = require('./routes/mediaRoutes');
 const path = require('path');
 const morgan = require('morgan');
 const kiotvietRoutes = require('./routes/kiotvietRoutes');
+const posRoutes = require('./routes/posRoutes');
 
 const app = express();
 
@@ -20,6 +21,7 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 // Routes - removed "/api" prefix for production
 app.use('/media', mediaRoutes);
 app.use('/kiotviet', kiotvietRoutes);
+app.use('/pos', posRoutes);
 
 // Simple health check
 app.get("/", (req, res) => {
