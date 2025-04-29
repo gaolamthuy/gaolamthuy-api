@@ -24,19 +24,38 @@ const scheduleKiotVietSyncJobs = () => {
       await kiotvietService.cloneCustomers();
       // Clone products
       await kiotvietService.cloneProducts();
-      // Clone today's invoices
-      const today = new Date();
-      const year = today.getFullYear().toString();
-      const month = (today.getMonth() + 1).toString().padStart(2, '0');
-      const day = today.getDate().toString().padStart(2, '0');
-      console.log(`🔄 Cloning invoices for today: ${year}-${month}-${day}`);
-      await kiotvietService.cloneInvoicesByDay(year, month, day);
+      // // Clone today's invoices
+      // const today = new Date();
+      // const year = today.getFullYear().toString();
+      // const month = (today.getMonth() + 1).toString().padStart(2, '0');
+      // const day = today.getDate().toString().padStart(2, '0');
+      // console.log(`🔄 Cloning invoices for today: ${year}-${month}-${day}`);
+      // await kiotvietService.cloneInvoicesByDay(year, month, day);
       console.log('✅ Daily KiotViet data sync jobs completed successfully');
     } catch (err) {
       console.error('❌ Error during daily KiotViet data sync jobs', err);
     }
   }, {
     timezone: process.env.TIMEZONE || 'UTC'
+  });
+};
+
+// Schedule KiotViet invoice - every 30 minutes
+const scheduleKiotVietInvoice = () => {
+  console.log('🕒 Scheduling KiotViet invoice');
+  cron.schedule('0,30 * * * *', async () => {
+    console.log('🌅 Running KiotViet invoice');
+    try {
+      // Clone today's invoices
+      const today = new Date();
+      const year = today.getFullYear().toString();
+      const month = (today.getMonth() + 1).toString().padStart(2, '0');
+      const day = today.getDate().toString().padStart(2, '0');
+      await kiotvietService.cloneInvoicesByDay(year, month, day);
+      console.log(`✅ KiotViet invoice clone by day ${day}-${month}-${year} completed successfully`);
+    } catch (err) {
+      console.error('❌ Error during KiotViet invoice', err);
+    }
   });
 };
 

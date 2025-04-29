@@ -6,6 +6,7 @@ const path = require('path');
 const morgan = require('morgan');
 const kiotvietRoutes = require('./routes/kiotvietRoutes');
 const posRoutes = require('./routes/posRoutes');
+const printRoutes = require('./routes/printRoutes');
 
 const app = express();
 
@@ -22,6 +23,7 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 app.use('/media', mediaRoutes);
 app.use('/kiotviet', kiotvietRoutes);
 app.use('/pos', posRoutes);
+app.use('/print', printRoutes);
 
 // Simple health check
 app.get("/", (req, res) => {
@@ -30,7 +32,8 @@ app.get("/", (req, res) => {
     version: '1.0.0',
     endpoints: [
       '/media - Media upload and management',
-      '/kiotviet - KiotViet data synchronization'
+      '/kiotviet - KiotViet data synchronization',
+      '/print - Print invoices and product labels'
     ]
   });
 });
