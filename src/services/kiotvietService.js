@@ -478,6 +478,7 @@ async function cloneInvoicesByMonth(year, month) {
             using_cod: invoice.usingCod || false,
             created_date: invoice.createdDate ? new Date(invoice.createdDate) : null,
             synced_at: new Date(),
+            description: invoice.description || '',
             // source: 'kiotviet'
           };
           
@@ -648,6 +649,7 @@ async function cloneInvoicesByDay(year, month, day) {
             using_cod: invoice.usingCod || false,
             created_date: invoice.createdDate ? new Date(invoice.createdDate) : null,
             synced_at: new Date(),
+            description: invoice.description || '',
             // source: 'kiotviet'
           };
           
@@ -781,6 +783,7 @@ async function cloneInvoiceByCode(invoiceCode) {
       created_date:     invoice.createdDate ? new Date(invoice.createdDate) : null,
       synced_at:        new Date(),
       sale_channel_name: invoice.SaleChannel.Name || 'gltpos',
+      description:      invoice.description || '',
       // sale_channel_id:   invoice.SaleChannel.Id || 185336,
       // source:           'kiotviet'
     };
