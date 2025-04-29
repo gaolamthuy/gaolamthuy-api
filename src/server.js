@@ -65,4 +65,5 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   scheduleManifestUpdates();
   scheduleKiotVietSyncJobs();
+  scheduleKiotVietInvoice();
 }); 
