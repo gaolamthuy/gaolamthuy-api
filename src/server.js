@@ -6,7 +6,7 @@
 const app = require('./app');
 const cron = require('node-cron');
 const kiotvietService = require('./services/kiotvietService');
-// Removed updateImageManifest reference
+const { getTodayComponents, formatYMD } = require('./utils/dateUtils');
 
 // Schedule manifest updates - every hour
 const scheduleManifestUpdates = () => {
@@ -24,13 +24,6 @@ const scheduleKiotVietSyncJobs = () => {
       await kiotvietService.cloneCustomers();
       // Clone products
       await kiotvietService.cloneProducts();
-      // // Clone today's invoices
-      // const today = new Date();
-      // const year = today.getFullYear().toString();
-      // const month = (today.getMonth() + 1).toString().padStart(2, '0');
-      // const day = today.getDate().toString().padStart(2, '0');
-      // console.log(`🔄 Cloning invoices for today: ${year}-${month}-${day}`);
-      // await kiotvietService.cloneInvoicesByDay(year, month, day);
       console.log('✅ Daily KiotViet data sync jobs completed successfully');
     } catch (err) {
       console.error('❌ Error during daily KiotViet data sync jobs', err);
@@ -42,19 +35,19 @@ const scheduleKiotVietSyncJobs = () => {
 
 // Schedule KiotViet invoice - every 30 minutes
 const scheduleKiotVietInvoice = () => {
-  console.log('🕒 Scheduling KiotViet invoice');
+  console.log('🕒 Scheduling KiotViet invoice updates (every 30 minutes)');
   cron.schedule('0,30 * * * *', async () => {
-    console.log('🌅 Running KiotViet invoice');
+    console.log('🌅 Running KiotViet invoice update');
     try {
       // Clone today's invoices
-      const today = new Date();
-      const year = today.getFullYear().toString();
-      const month = (today.getMonth() + 1).toString().padStart(2, '0');
-      const day = today.getDate().toString().padStart(2, '0');
+      const { year, month, day } = getTodayComponents();
+      const formattedDate = formatYMD({ year, month, day });
+      
+      console.log(`🔄 Cloning invoices for today: ${formattedDate}`);
       await kiotvietService.cloneInvoicesByDay(year, month, day);
-      console.log(`✅ KiotViet invoice clone by day ${day}-${month}-${year} completed successfully`);
+      console.log(`✅ KiotViet invoice clone completed successfully for ${formattedDate}`);
     } catch (err) {
-      console.error('❌ Error during KiotViet invoice', err);
+      console.error('❌ Error during KiotViet invoice update', err);
     }
   });
 };

@@ -28,14 +28,14 @@ async function generateManifest() {
       fs.mkdirSync(tempDir, { recursive: true });
     }
 
-    // Get all products with images (image_updated_at is not null)
+    // Get all products with images (glt_image_updated_at is not null)
     console.log('Fetching products from Supabase...');
     const { data: products, error } = await supabase
-      .from('glt_products')
-      .select('id, kiotviet_id, slug, tags, image_updated_at, sort_order, visible')
-      .order('sort_order', { ascending: true, nullsLast: true })
+      .from('kv_products')
+      .select('id, kiotviet_id, glt_slug, glt_tags, glt_image_updated_at, glt_sort_order, glt_visible')
+      .order('glt_sort_order', { ascending: true, nullsLast: true })
       .order('id', { ascending: true })
-      .not('image_updated_at', 'is', null);
+      .not('glt_image_updated_at', 'is', null);
     
     if (error) {
       console.error('Error fetching products:', error);
@@ -52,19 +52,19 @@ async function generateManifest() {
       totalCount: products.length,
       images: products.map(product => {
         const cdnBase = process.env.CDN_ENDPOINT || '';
-        const versionParam = `?v=${product.image_updated_at}`;
+        const versionParam = `?v=${product.glt_image_updated_at}`;
         
         return {
           id: product.id,
           kiotvietId: product.kiotviet_id,
-          slug: product.slug,
-          tags: product.tags,
-          updatedAt: product.image_updated_at,
-          visible: product.visible,
-          sortOrder: product.sort_order,
+          slug: product.glt_slug,
+          tags: product.glt_tags,
+          updatedAt: product.glt_image_updated_at,
+          visible: product.glt_visible,
+          sortOrder: product.glt_sort_order,
           urls: {
-            thumbnail: `${cdnBase}/product-images/dynamic/thumbnail/${product.slug}.webp${versionParam}`,
-            zoom: `${cdnBase}/product-images/dynamic/zoom/${product.slug}.webp${versionParam}`
+            thumbnail: `${cdnBase}/product-images/dynamic/thumbnail/${product.glt_slug}.webp${versionParam}`,
+            zoom: `${cdnBase}/product-images/dynamic/zoom/${product.glt_slug}.webp${versionParam}`
           }
         };
       })

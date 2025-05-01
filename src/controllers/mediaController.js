@@ -41,9 +41,9 @@ const handleUpload = async (req, res) => {
     // Find products that have this tag in their tags array
     let matchingProducts;
     const { data: exactMatches, error: searchError } = await supabase
-      .from('glt_products')
+      .from('kv_products')
       .select('*')
-      .contains('tags', [tagString]);
+      .contains('glt_tags', [tagString]);
     
     matchingProducts = exactMatches;
     
@@ -59,12 +59,12 @@ const handleUpload = async (req, res) => {
       
       // Get all products and filter for case-insensitive match
       const { data: allProducts } = await supabase
-        .from('glt_products')
+        .from('kv_products')
         .select('*');
         
       if (allProducts && allProducts.length > 0) {
         const caseInsensitiveMatches = allProducts.filter(p => 
-          p.tags.some(tag => tag.toLowerCase() === tagString.toLowerCase())
+          p.glt_tags.some(tag => tag.toLowerCase() === tagString.toLowerCase())
         );
         
         if (caseInsensitiveMatches.length > 0) {
@@ -93,7 +93,7 @@ const handleUpload = async (req, res) => {
     
     // Get product details
     const kiotvietId = product.kiotviet_id;
-    const slug = product.slug;
+    const slug = product.glt_slug;
     
     console.log(`✅ Found product with kiotvietId: ${kiotvietId}, slug: ${slug}`);
     
@@ -147,12 +147,12 @@ const handleUpload = async (req, res) => {
     
     // Update product information with only image_updated_at 
     const { data: updatedProduct, error: updateError } = await supabase
-      .from('glt_products')
+      .from('kv_products')
       .update({
-        image_updated_at: imageUpdatedAt,
-        updated_at: new Date().toISOString()
+        glt_image_updated_at: imageUpdatedAt,
+        glt_updated_at: new Date().toISOString()
       })
-      .eq('id', product.id)
+      .eq('kiotviet_id', kiotvietId)
       .select()
       .single();
     
@@ -226,59 +226,57 @@ const handleUpload = async (req, res) => {
  */
 const getProductImages = async (req, res) => {
   try {
-    // Parse query parameters
-    const { visible, limit = 50, offset = 0, tags } = req.query;
+    const { kiotviet_id } = req.params;
     
-    // Build query
-    let query = supabase
-      .from('glt_products')
-      .select(`
-        *,
-        kiotviet_products(id, kiotviet_id, name, full_name, code, category_name)
-      `)
-      .order('sort_order', { ascending: true, nullsLast: true })
-      .order('id', { ascending: true });
-    
-    // Add filters
-    if (visible === 'true') {
-      query = query.eq('visible', true);
-    } else if (visible === 'false') {
-      query = query.eq('visible', false);
+    if (!kiotviet_id) {
+      return res.status(400).json({
+        success: false,
+        message: "kiotviet_id parameter is required"
+      });
     }
     
-    // Filter by tags if provided
-    if (tags) {
-      const tagArray = tags.split(',').map(tag => tag.trim());
-      query = query.contains('tags', tagArray);
-    }
-    
-    // Add pagination
-    query = query.range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
-    
-    // Execute query
-    const { data, error, count } = await query;
+    // Get product from database
+    const { data: product, error } = await supabase
+      .from('kv_products')
+      .select('*, glt_slug, glt_image_updated_at')
+      .eq('kiotviet_id', kiotviet_id)
+      .single();
     
     if (error) {
-      console.error('❌ Error fetching products:', error);
-      throw error;
+      console.error('❌ Error fetching product:', error);
+      return res.status(404).json({
+        success: false,
+        message: `No product found with KiotViet ID: ${kiotviet_id}`,
+        error: error.message
+      });
     }
     
-    // Get total count
-    const { count: totalCount, error: countError } = await supabase
-      .from('glt_products')
-      .select('*', { count: 'exact', head: true });
-    
-    if (countError) {
-      console.error('❌ Error counting products:', countError);
+    // Check if product has images
+    if (!product.glt_slug || !product.glt_image_updated_at) {
+      return res.status(404).json({
+        success: false,
+        message: `No images found for product with KiotViet ID: ${kiotviet_id}`
+      });
     }
+    
+    // Build image URLs with cache-busting version parameter
+    const cdnBase = process.env.CDN_ENDPOINT || '';
+    const versionParam = `?v=${product.glt_image_updated_at}`;
+    
+    const imageUrls = {
+      thumbnail: `${cdnBase}/product-images/dynamic/thumbnail/${product.glt_slug}.webp${versionParam}`,
+      zoom: `${cdnBase}/product-images/dynamic/zoom/${product.glt_slug}.webp${versionParam}`
+    };
     
     res.status(200).json({
       success: true,
-      data,
-      pagination: {
-        total: totalCount || 0,
-        offset: parseInt(offset),
-        limit: parseInt(limit)
+      product: {
+        id: product.id,
+        kiotviet_id: product.kiotviet_id,
+        name: product.name,
+        slug: product.glt_slug,
+        image_updated_at: product.glt_image_updated_at,
+        images: imageUrls
       }
     });
   } catch (error) {
@@ -304,16 +302,16 @@ const addProductWithTags = async (req, res) => {
       });
     }
     
-    if (!tags || !Array.isArray(tags) || tags.length === 0) {
+    if (!Array.isArray(tags) || tags.length === 0) {
       return res.status(400).json({
         success: false,
         message: "tags array is required with at least one tag"
       });
     }
     
-    // Check if kiotviet_id exists in kiotviet_products
+    // Check if kiotviet_id exists in kv_products
     const { data: kiotvietProduct, error: kiotvietError } = await supabase
-      .from('kiotviet_products')
+      .from('kv_products')
       .select('*')
       .eq('kiotviet_id', kiotviet_id)
       .single();
@@ -325,42 +323,36 @@ const addProductWithTags = async (req, res) => {
       });
     }
     
-    // Check if product already exists in glt_products
-    const { data: existingProduct, error: existingError } = await supabase
-      .from('glt_products')
-      .select('*')
-      .eq('kiotviet_id', kiotviet_id)
-      .single();
-    
-    if (existingProduct) {
+    // Check if product already has GLT fields populated
+    if (kiotvietProduct.glt_tags) {
       return res.status(400).json({
         success: false,
-        message: `Product with kiotviet_id ${kiotviet_id} already exists in glt_products`
+        message: `Product with kiotviet_id ${kiotviet_id} already has GLT data in kv_products`
       });
     }
     
-    // Create new product
-    const { data: newProduct, error: insertError } = await supabase
-      .from('glt_products')
-      .insert({
-        kiotviet_id,
-        tags,
-        note,
-        visible
+    // Update product with GLT fields
+    const { data: updatedProduct, error: updateError } = await supabase
+      .from('kv_products')
+      .update({
+        glt_tags: tags,
+        glt_note: note,
+        glt_visible: visible,
+        glt_updated_at: new Date()
       })
+      .eq('kiotviet_id', kiotviet_id)
       .select()
       .single();
     
-    if (insertError) {
-      console.error('❌ Error creating product:', insertError);
-      throw insertError;
+    if (updateError) {
+      console.error('❌ Error updating product:', updateError);
+      throw updateError;
     }
     
     res.status(201).json({
       success: true,
-      message: "Product created successfully",
-      product: newProduct,
-      kiotviet_product: kiotvietProduct
+      message: "Product updated successfully",
+      product: updatedProduct
     });
   } catch (error) {
     console.error('❌ Error adding product with tags:', error);
@@ -399,13 +391,13 @@ const updateImageManifest = async (req, res) => {
     console.log('Request received with method:', req?.method);
     console.log('Auth header present:', req?.headers?.authorization ? 'Yes' : 'No');
     
-    // Get all products with images (image_updated_at is not null)
+    // Get all products with images (glt_image_updated_at is not null)
     const { data: products, error } = await supabase
-      .from('glt_products')
-      .select('id, kiotviet_id, slug, tags, image_updated_at, sort_order, visible')
-      .order('sort_order', { ascending: true, nullsLast: true })
+      .from('kv_products')
+      .select('id, kiotviet_id, glt_slug, glt_tags, glt_image_updated_at, glt_sort_order, glt_visible')
+      .order('glt_sort_order', { ascending: true, nullsLast: true })
       .order('id', { ascending: true })
-      .not('image_updated_at', 'is', null);
+      .not('glt_image_updated_at', 'is', null);
     
     if (error) {
       console.error('❌ Error fetching products for manifest:', error);
@@ -421,19 +413,19 @@ const updateImageManifest = async (req, res) => {
       totalCount: products.length,
       images: products.map(product => {
         const cdnBase = process.env.CDN_ENDPOINT || '';
-        const versionParam = `?v=${product.image_updated_at}`;
+        const versionParam = `?v=${product.glt_image_updated_at}`;
         
         return {
           id: product.id,
           kiotvietId: product.kiotviet_id,
-          slug: product.slug,
-          tags: product.tags,
-          updatedAt: product.image_updated_at,
-          visible: product.visible,
-          sortOrder: product.sort_order,
+          slug: product.glt_slug,
+          tags: product.glt_tags,
+          updatedAt: product.glt_image_updated_at,
+          visible: product.glt_visible,
+          sortOrder: product.glt_sort_order,
           urls: {
-            thumbnail: `${cdnBase}/product-images/dynamic/thumbnail/${product.slug}.webp${versionParam}`,
-            zoom: `${cdnBase}/product-images/dynamic/zoom/${product.slug}.webp${versionParam}`
+            thumbnail: `${cdnBase}/product-images/dynamic/thumbnail/${product.glt_slug}.webp${versionParam}`,
+            zoom: `${cdnBase}/product-images/dynamic/zoom/${product.glt_slug}.webp${versionParam}`
           }
         };
       })

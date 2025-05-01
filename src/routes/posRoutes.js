@@ -3,6 +3,7 @@ const router = express.Router();
 const { basicAuth } = require("../middlewares/auth");
 const axios = require("axios");
 const { getKiotVietHeaders, cloneInvoiceByCode } = require("../services/kiotvietService");
+const { successResponse, errorResponse } = require('../utils/responseHandler');
 
 // Apply basic authentication to all POS routes
 router.use(basicAuth);
@@ -58,10 +59,10 @@ router.post("/new-glt-invoice", async (req, res) => {
     console.log(`🔄 Cloning invoice by code: ${invoiceCode}`);
     const cloneResult = await cloneInvoiceByCode(invoiceCode);
     console.log("✅ cloneInvoiceByCode result:", cloneResult);
-    return res.status(200).json({ success: true, data: response.data });
+    return successResponse(res, response.data);
   } catch (error) {
     console.error("❌ Failed to post invoice to KiotViet:", error.response?.data || error.message);
-    return res.status(500).json({ success: false, error: error.response?.data || error.message });
+    return errorResponse(res, 'Failed to post invoice to KiotViet', error.response?.data || error.message);
   }
 });
 

@@ -7,6 +7,8 @@ const { formatInTimeZone } = require('date-fns-tz');
 const path = require('path');
 const fs = require('fs').promises;
 const printJobRoutes = require('./printJobRoutes');
+const printService = require('../services/printService');
+const { htmlResponse, errorResponse } = require('../utils/responseHandler');
 
 // Create Supabase client
 const supabase = createClient(
@@ -209,107 +211,14 @@ router.get('/kv-invoice', async (req, res) => {
     const { code } = req.query;
     
     if (!code) {
-      return res.status(400).send('Invoice code is required');
+      return errorResponse(res, 'Invoice code is required', null, 400);
     }
     
-    // Fetch invoice data
-    const { data: invoice, error: invoiceError } = await supabase
-      .from('kv_invoices')
-      .select('*')
-      .eq('code', code)
-      .single();
-      
-    if (invoiceError || !invoice) {
-      console.error('Error fetching invoice:', invoiceError || 'Invoice not found');
-      return res.status(404).send('Invoice not found');
-    }
-    
-    // Fetch invoice details
-    const { data: invoiceDetails, error: detailsError } = await supabase
-      .from('kv_invoice_details')
-      .select('*')
-      .eq('invoice_id', invoice.id);
-      
-    if (detailsError) {
-      console.error('Error fetching invoice details:', detailsError);
-      return res.status(500).send('Error fetching invoice details');
-    }
-    
-    // Fetch customer information if available
-    let customer = null;
-    if (invoice.kiotviet_customer_id) {
-      const { data: customerData, error: customerError } = await supabase
-        .from('kv_customers')
-        .select('*')
-        .eq('kiotviet_id', invoice.kiotviet_customer_id)
-        .single();
-        
-      if (!customerError && customerData) {
-        customer = customerData;
-      }
-    }
-    
-    // Prepare template data
-    const templateData = {
-      Tieu_De_In: 'HÓA ĐƠN BÁN HÀNG',
-      Ma_Don_Hang: invoice.code,
-      Ngay_Thang_Nam: formatInTimeZone(invoice.purchase_date, 'Asia/Ho_Chi_Minh', 'HH:mm:ss - dd/MM/yyyy', { locale: vi }),
-      Thu_Ngan: invoice.sold_by_name || 'N/A',
-      Khach_Hang: invoice.customer_name || 'Khách lẻ',
-      So_Dien_Thoai: customer?.contact_number || 'N/A',
-      Dia_Chi_Khach_Hang: customer?.address || 'N/A',
-      Phuong_Xa_Khach_Hang: customer?.ward_name || '',
-      Khu_Vuc_Khach_Hang_QH_TP: `${customer?.location_name || ''}${customer?.location_name ? ' - ' : ''}${customer?.city_name || ''}`,
-      Du_No_Truoc_Tao_Hoa_Don: customer?.debt ? formatCurrency(customer.debt) : '0',
-      Ghi_Chu: invoice.description || '',
-      Tong_Tien_Hang: formatCurrency(invoice.total - invoice.discount),
-      Tong_Don_Hang: formatCurrency(invoice.total),
-      Chiet_Khau_Hoa_Don: formatCurrency(invoice.discount)
-    };
-    
-    // Format invoice details
-    let formattedDetails = '';
-    for (const detail of invoiceDetails) {
-      formattedDetails += `
-        <tr>
-            <td colspan="3">${detail.product_name} - (${detail.note || ''})</td>
-        </tr>
-        <tr>
-            <td style="border-bottom:1px dashed black">${detail.quantity} ${detail.unit || 'Cái'}</td>
-            <td style="border-bottom:1px dashed black; text-align:right">${formatCurrency(detail.price - detail.discount)}</td>
-            <td style="border-bottom:1px dashed black; text-align:right">${formatCurrency(detail.sub_total)}</td>
-        </tr>
-      `;
-    }
-    
-    // Generate HTML from template
-    const templatePath = path.join(__dirname, '../../docs/printInvoice.html');
-    const htmlContent = await fs.readFile(templatePath, 'utf8');
-    
-    // Replace template variables
-    let finalHtml = htmlContent;
-    Object.keys(templateData).forEach(key => {
-      finalHtml = finalHtml.replace(new RegExp(`{${key}}`, 'g'), templateData[key]);
-    });
-    
-    // Replace details
-    finalHtml = finalHtml.replace(/\{Ten_Hang_Hoa\} - \(\{Ghi_Chu_Hang_Hoa\}\).*?\{Thanh_Tien\}\<\/td\>/s, formattedDetails);
-    
-    // Payment status
-    const paymentStatus = Math.abs(invoice.total - invoice.discount - invoice.total_payment) < 1 
-      ? `<div style="clear: both; text-align: center; margin: 10px 0; padding: 5px; border: 2px dashed #28a745;">
-           <span style="color: #28a745; font-weight: bold;">✅ ĐÃ THANH TOÁN ĐỦ</span>
-         </div>`
-      : "";
-    
-    finalHtml = finalHtml.replace(/\$\{[^}]+\}/g, paymentStatus);
-    
-    // Send HTML response
-    res.setHeader('Content-Type', 'text/html');
-    res.send(finalHtml);
+    const html = await printService.generateInvoicePrint(code);
+    return htmlResponse(res, html);
   } catch (error) {
     console.error('Error generating invoice print:', error);
-    res.status(500).send('Error generating invoice print');
+    return errorResponse(res, 'Error generating invoice print', error);
   }
 });
 
@@ -322,60 +231,14 @@ router.get('/label-product', async (req, res) => {
     const { code, quantity } = req.query;
     
     if (!code) {
-      return res.status(400).send('Product code is required');
+      return errorResponse(res, 'Product code is required', null, 400);
     }
     
-    // Fetch product data
-    const { data: product, error: productError } = await supabase
-      .from('kv_products')
-      .select('*')
-      .eq('kiotviet_id', code)
-      .single();
-      
-    if (productError || !product) {
-      console.error('Error fetching product:', productError || 'Product not found');
-      return res.status(404).send('Product not found');
-    }
-    
-    const productQty = quantity ? parseFloat(quantity) : 1;
-    const pricePerUnit = product.base_price || 0;
-    const totalPrice = pricePerUnit * productQty;
-    
-    // Prepare data for template
-    const data = {
-      productName: product.full_name || product.name,
-      order_template: product.order_template || '',
-      price: pricePerUnit,
-      quantity: productQty,
-      totalPrice: totalPrice,
-      packingDate: format(new Date(), 'dd/MM/yyyy', { locale: vi }),
-      storeInfo: 'Gạo Lâm Thúy <br> 23 Ng.Đ.Chiểu, P4, Q.PN, TP.HCM'
-    };
-    
-    // Generate HTML from template
-    const templatePath = path.join(__dirname, '../../docs/printLabel.html');
-    const htmlContent = await fs.readFile(templatePath, 'utf8');
-    
-    // Replace formatCurrency function
-    let finalHtml = htmlContent.replace(/formatCurrency\([^)]+\)/g, (match) => {
-      const value = match.match(/formatCurrency\(([^)]+)\)/)[1];
-      if (value === 'data.price') return formatCurrency(data.price);
-      if (value === 'data.totalPrice') return formatCurrency(data.totalPrice);
-      return match;
-    });
-    
-    // Replace template variables
-    Object.keys(data).forEach(key => {
-      const regex = new RegExp(`\\$\\{data.${key}\\}`, 'g');
-      finalHtml = finalHtml.replace(regex, data[key]);
-    });
-    
-    // Send HTML response
-    res.setHeader('Content-Type', 'text/html');
-    res.send(finalHtml);
+    const html = await printService.generateProductLabelPrint(code, quantity);
+    return htmlResponse(res, html);
   } catch (error) {
     console.error('Error generating product label print:', error);
-    res.status(500).send('Error generating product label print');
+    return errorResponse(res, 'Error generating product label print', error);
   }
 });
 

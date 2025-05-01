@@ -1,9 +1,12 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const mediaRoutes = require('./routes/mediaRoutes');
 const path = require('path');
 const morgan = require('morgan');
+const { errorResponse } = require('./utils/responseHandler');
+
+// Import routes
+const mediaRoutes = require('./routes/mediaRoutes');
 const kiotvietRoutes = require('./routes/kiotvietRoutes');
 const posRoutes = require('./routes/posRoutes');
 const printRoutes = require('./routes/printRoutes');
@@ -40,19 +43,13 @@ app.get("/", (req, res) => {
 
 // Catch-all for 404 errors
 app.use((req, res, next) => {
-  res.status(404).json({
-    success: false,
-    message: `Route ${req.originalUrl} not found`
-  });
+  return errorResponse(res, `Route ${req.originalUrl} not found`, null, 404);
 });
 
 // Error handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).json({
-    success: false,
-    message: err.message || 'Internal Server Error'
-  });
+  return errorResponse(res, err.message || 'Internal Server Error', err);
 });
 
 module.exports = app; 

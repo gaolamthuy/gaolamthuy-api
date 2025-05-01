@@ -150,12 +150,47 @@ async function cloneProducts() {
       
       console.log(`🔄 Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(products.length/batchSize)}`);
       
+      // Get the KiotViet IDs
+      const kiotvietIds = batch.map(product => product.id);
+      
+      // First fetch existing products to preserve glt_ fields
+      const { data: existingProducts, error: fetchError } = await supabase
+        .from('kv_products')
+        .select('*')
+        .in('kiotviet_id', kiotvietIds);
+        
+      if (fetchError) {
+        console.error("❌ Error fetching existing products:", fetchError);
+        errorCount += batch.length;
+        continue;
+      }
+      
+      // Create a map of existing products by kiotviet_id
+      const existingProductsMap = {};
+      for (const product of (existingProducts || [])) {
+        existingProductsMap[product.kiotviet_id] = product;
+      }
+      
       const productRows = [];
       
       for (const product of batch) {
         try {
+          // Get existing product data (if any)
+          const existingProduct = existingProductsMap[product.id] || {};
+          
+          // Extract all glt_ prefixed fields from the existing product
+          const gltFields = {};
+          if (existingProduct) {
+            Object.keys(existingProduct).forEach(key => {
+              if (key.startsWith('glt_')) {
+                gltFields[key] = existingProduct[key];
+              }
+            });
+          }
+          
           // Map KiotViet product data to our database structure
-          productRows.push({
+          const productData = {
+            // KiotViet fields
             kiotviet_id: product.id,
             retailer_id: product.retailerId,
             code: product.code,
@@ -165,7 +200,6 @@ async function cloneProducts() {
             category_id: product.categoryId,
             category_name: product.categoryName,
             allows_sale: product.allowsSale,
-            type: product.type,
             has_variants: product.hasVariants,
             base_price: product.basePrice,
             weight: product.weight || null,
@@ -183,7 +217,16 @@ async function cloneProducts() {
             trade_mark_name: product.tradeMarkName || '',
             trade_mark_id: product.tradeMarkId || null,
             images: product.images || [],
-            synced_at: new Date()
+            
+            // Default values for glt fields if not present in existing record
+            glt_synced_at: new Date(),
+            glt_updated_at: new Date()
+          };
+          
+          // Merge all existing glt fields with the new data, preserving their values
+          productRows.push({
+            ...productData,
+            ...gltFields
           });
           
           successCount++;
