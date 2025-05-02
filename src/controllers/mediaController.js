@@ -2,14 +2,85 @@ const sharp = require('sharp');
 const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
 const path = require('path');
+const { registerFont } = require('canvas');
+registerFont(path.join(__dirname, '../../fonts/Nunito-Regular.ttf'), {
+  family: 'Nunito'
+});
 const { uploadToS3 } = require('../utils/s3');
-const supabase = require('../utils/database');
+const { createClient } = require('@supabase/supabase-js');
+
+// Create Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
 
 // Ensure upload directory exists
 const uploadDir = path.join(__dirname, '../../uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
+
+/**
+ * Generate a slug from product name or code
+ * @param {Object} product - The product object
+ * @returns {string} A slug string
+ */
+const generateProductSlug = (product) => {
+  let baseSlug = '';
+  
+  // Use name as primary source if available
+  if (product.name) {
+    baseSlug = product.name.toLowerCase();
+  } 
+  // Fallback to code
+  else if (product.code) {
+    baseSlug = product.code.toLowerCase();
+  } 
+  // Last resort, use kiotviet_id with prefix
+  else {
+    baseSlug = `product-${product.kiotviet_id}`;
+  }
+  
+  // Replace special characters and spaces with dashes
+  let slug = baseSlug
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Remove accents
+    .replace(/[^a-z0-9\s-]/g, '') // Remove non-alphanumeric chars except spaces and dashes
+    .replace(/\s+/g, '-') // Replace spaces with dashes
+    .replace(/-+/g, '-') // Replace multiple dashes with single dash
+    .trim();
+    
+  // Add kiotviet_id at the end to ensure uniqueness
+  return `${slug}-${product.kiotviet_id}`;
+};
+
+const getShortPriceString = async (productId) => {
+  const { data: inventory } = await supabase
+    .from('kv_product_inventories')
+    .select('cost')
+    .eq('product_id', productId)
+    .limit(1)
+    .single();
+
+  if (!inventory || !inventory.cost) return null;
+
+  const cost = parseFloat(inventory.cost) + 2000;
+  const costShort = (cost / 1000).toFixed(1);
+
+  const { data: product } = await supabase
+    .from('kv_products')
+    .select('base_price')
+    .eq('id', productId)
+    .single();
+
+  if (!product || !product.base_price) return null;
+
+  const basePriceShort = (parseFloat(product.base_price) / 1000).toFixed(1);
+
+  return `${basePriceShort}/${costShort}`;
+};
+
 
 /**
  * Handle media uploads and apply image processing
@@ -25,7 +96,7 @@ const handleUpload = async (req, res) => {
     }
     
     // Check if tag was provided
-    const { tags } = req.body;
+    const { tags, overlayText } = req.body;
     if (!tags || typeof tags !== 'string' || !tags.trim()) {
       return res.status(400).json({ 
         success: false, 
@@ -42,7 +113,7 @@ const handleUpload = async (req, res) => {
     let matchingProducts;
     const { data: exactMatches, error: searchError } = await supabase
       .from('kv_products')
-      .select('*')
+      .select('*, glt_gallery_thumbnail_title')
       .contains('glt_tags', [tagString]);
     
     matchingProducts = exactMatches;
@@ -60,11 +131,12 @@ const handleUpload = async (req, res) => {
       // Get all products and filter for case-insensitive match
       const { data: allProducts } = await supabase
         .from('kv_products')
-        .select('*');
+        .select('*, glt_gallery_thumbnail_title');
         
       if (allProducts && allProducts.length > 0) {
         const caseInsensitiveMatches = allProducts.filter(p => 
-          p.glt_tags.some(tag => tag.toLowerCase() === tagString.toLowerCase())
+          p.glt_tags && Array.isArray(p.glt_tags) && 
+          p.glt_tags.some(tag => tag && tag.toLowerCase() === tagString.toLowerCase())
         );
         
         if (caseInsensitiveMatches.length > 0) {
@@ -93,9 +165,72 @@ const handleUpload = async (req, res) => {
     
     // Get product details
     const kiotvietId = product.kiotviet_id;
-    const slug = product.glt_slug;
+    let slug = product.glt_slug;
+    const categoryId = product.category_id;
+
     
-    console.log(`✅ Found product with kiotvietId: ${kiotvietId}, slug: ${slug}`);
+    // Get thumbnail title from product
+    let thumbnailTitle = product.glt_gallery_thumbnail_title || overlayText || '';
+    console.log(`📝 Debug - Product details retrieved:`, {
+      kiotvietId,
+      name: product.name,
+      slug,
+      categoryId,
+      hasGltGalleryThumbnailTitle: !!product.glt_gallery_thumbnail_title,
+      glt_gallery_thumbnail_title: product.glt_gallery_thumbnail_title,
+      hasOverlayText: !!overlayText,
+      overlayText,
+      finalThumbnailTitle: thumbnailTitle
+    });
+    
+    // Get short price text
+    // Thêm giá sản phẩm vào thumbnail title
+    const shortPriceText = await getShortPriceString(product.id);
+    if (shortPriceText) {
+      thumbnailTitle += `\n${shortPriceText}`;
+    }
+    console.log(`📝 Debug - Thumbnail title with short price: "${thumbnailTitle}"`);
+
+    // Generate slug if it doesn't exist
+    if (!slug) {
+      slug = generateProductSlug(product);
+      console.log(`🔖 Generated new slug for product: ${slug}`);
+      
+      // Update the product with the new slug
+      const { error: slugUpdateError } = await supabase
+        .from('kv_products')
+        .update({ glt_slug: slug })
+        .eq('kiotviet_id', kiotvietId);
+        
+      if (slugUpdateError) {
+        console.error('❌ Error updating product slug:', slugUpdateError);
+        // Continue even if there's an error, using the generated slug in memory
+        console.log('⚠️ Continuing with generated slug in memory, without saving to database');
+      }
+    }
+    
+    // Final check to ensure we have a slug
+    if (!slug) {
+      slug = `product-${kiotvietId}-${Date.now()}`;
+      console.log(`⚠️ Using fallback slug: ${slug}`);
+    }
+    
+    console.log(`✅ Found product with kiotvietId: ${kiotvietId}, slug: ${slug}, categoryId: ${categoryId}`);
+    
+    // Get category color border if available
+    let borderColor = '#ffb96e'; // Default color
+    if (categoryId) {
+      const { data: category } = await supabase
+        .from('kv_product_categories')
+        .select('glt_color_border')
+        .eq('category_id', categoryId)
+        .single();
+      
+      if (category && category.glt_color_border) {
+        borderColor = category.glt_color_border;
+        console.log(`🎨 Using category border color: ${borderColor}`);
+      }
+    }
     
     // Process image with sharp
     const imagePath = req.file.path;
@@ -112,18 +247,186 @@ const handleUpload = async (req, res) => {
       fs.mkdirSync(tempDir, { recursive: true });
     }
     
-    // Process thumbnail version (300px width, webp format)
+    // Define paths for processed images
     const thumbnailPath = path.join(tempDir, `${slug}-thumbnail.webp`);
-    await sharp(imagePath)
-      .resize(300) // resize to 300px width, maintain aspect ratio
-      .webp({ quality: 80 }) // convert to webp with quality setting for 60-90kb size
-      .toFile(thumbnailPath);
-      
-    // Process zoom version (1200px width, webp format)
     const zoomPath = path.join(tempDir, `${slug}-zoom.webp`);
+    const resizedThumbnailPath = path.join(tempDir, `${slug}-resized-thumbnail.png`);
+    
+    // First resize the thumbnail image (300x300)
+    const resizedBlurredPath = path.join(tempDir, `${slug}-resized-blur.png`);
     await sharp(imagePath)
-      .resize(1200) // resize to 1200px width, maintain aspect ratio
-      .webp({ quality: 85 }) // convert to webp with quality setting for 250-300kb size
+      .resize(300, 300, {
+        fit: 'cover',
+        position: 'center'
+      })
+      .blur(2.5) // 💡 bạn có thể chỉnh từ 1.5 đến 3.0 tùy ảnh
+      .png()
+      .toFile(resizedBlurredPath);
+    
+    
+    // Now apply canvas overlay with border and text (if provided)
+    console.log(`🔍 Debug - Canvas preparation:`, {
+      hasThumbnailTitle: !!thumbnailTitle,
+      thumbnailTitleLength: thumbnailTitle ? thumbnailTitle.length : 0,
+      borderColor,
+      willUseCanvas: !!thumbnailTitle,
+      resizedImagePath: resizedThumbnailPath,
+      resizedImageFormat: 'PNG'
+    });
+    
+    // Handle escape sequences in the title text
+    if (thumbnailTitle && thumbnailTitle.includes('\\n')) {
+      thumbnailTitle = thumbnailTitle.replace(/\\n/g, '\n');
+      console.log(`📝 Processed escape sequences in title: "${thumbnailTitle}"`);
+    }
+    
+    if (thumbnailTitle) {
+      try {
+        console.log(`🎨 Creating canvas with border color ${borderColor} and text overlay`);
+        const width = 300;
+        const height = 300;
+        const canvas = createCanvas(width, height);
+        const ctx = canvas.getContext('2d');
+        
+        // Load the resized image
+        console.log(`🖼️ Loading resized image for canvas: ${resizedThumbnailPath}`);
+        const image = await loadImage(resizedBlurredPath);
+        console.log(`✅ Image loaded successfully: ${image.width}x${image.height}`);
+        
+        // Draw a border (5px) using the category color
+        ctx.fillStyle = borderColor;
+        ctx.fillRect(0, 0, width, height);
+        console.log(`🎨 Drew border rectangle with color: ${borderColor}`);
+        
+        // Draw the image inside the border
+        ctx.drawImage(image, 5, 5, width - 10, height - 10);
+        console.log(`🖼️ Drew image inside border`);
+        
+        // Add text overlay
+        console.log(`✏️ Adding text overlay: "${thumbnailTitle.substring(0, 20)}${thumbnailTitle.length > 20 ? '...' : ''}"`);
+
+        // Handle multiline text
+        const lines = thumbnailTitle.split('\n');
+        console.log(`📝 Split text into ${lines.length} lines:`, lines);
+        
+        const lineHeight = 42;
+        const baseY = height / 2 - ((lines.length - 1) * lineHeight) / 2;
+        console.log(`📐 Text positioning - baseY: ${baseY}, lineHeight: ${lineHeight}`);
+        
+        // // Semi-transparent background for text
+        // ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        // ctx.fillRect(5, height - 85, width - 10, 80);
+        // console.log(`🎨 Drew semi-transparent background for text`);
+        
+        // 2. Nền mờ sau chữ:
+        ctx.fillStyle = borderColor;
+        // ctx.fillRect(10, height / 2 - (lines.length * 20), width - 20, lines.length * 42);
+
+        // 3. Text settings
+        // 5 cases for 
+        ctx.font =  lines.length === 1 ? 'bold 60px "Nunito"' : // 1 line 
+                    lines.length === 2 ? 'bold 50px "Nunito"' : // 2 lines
+                    lines.length === 3 ? 'bold 40px "Nunito"' : // 3 lines
+                    lines.length === 4 ? 'bold 40px "Nunito"' : // 4 lines
+                                         'bold 30px "Nunito"'; // 5 lines
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = 'white';
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth = 3;
+        ctx.shadowColor = borderColor;
+        ctx.shadowBlur = 3;
+        
+        lines.forEach((line, i) => {
+          const y = baseY + i * lineHeight;
+          ctx.strokeText(line, width / 2, y);
+          ctx.fillText(line, width / 2, y);
+          console.log(`✏️ Drew line ${i+1}: "${line}" at y=${y}`);
+        });
+        
+        // Save the canvas to file (as WebP for final output)
+        console.log(`💾 Saving canvas to file: ${thumbnailPath}`);
+        
+        // First save as PNG (better canvas compatibility)
+        const tempPngPath = path.join(tempDir, `${slug}-canvas-output.png`);
+        const buffer = canvas.toBuffer('image/png');
+        fs.writeFileSync(tempPngPath, buffer);
+        console.log(`✅ Canvas saved to temporary PNG: ${tempPngPath}, size: ${buffer.length} bytes`);
+        
+        // Then convert to WebP with sharp
+        await sharp(tempPngPath)
+          .webp({ quality: 80 })
+          .toFile(thumbnailPath);
+        console.log(`✅ Converted canvas output to WebP: ${thumbnailPath}`);
+        
+        // Clean up the temporary PNG
+        if (fs.existsSync(tempPngPath)) {
+          fs.unlinkSync(tempPngPath);
+          console.log(`🗑️ Deleted temporary PNG file: ${tempPngPath}`);
+        }
+      } catch (canvasError) {
+        console.error('❌ Error creating canvas:', canvasError);
+        console.log('⚠️ Canvas error details:', {
+          errorName: canvasError.name,
+          errorMessage: canvasError.message,
+          errorStack: canvasError.stack,
+        });
+        console.log('⚠️ Falling back to simple border using sharp');
+        
+        // If canvas fails, fall back to simple border with sharp
+        await sharp(resizedThumbnailPath)
+          .extend({
+            top: 5,
+            bottom: 5,
+            left: 5,
+            right: 5,
+            background: borderColor
+          })
+          .webp({ quality: 80 })
+          .toFile(thumbnailPath);
+          
+        console.log(`✅ Fallback thumbnail created with sharp at ${thumbnailPath}`);
+      }
+    } else {
+      console.log(`ℹ️ No thumbnail title provided, using simple border without text`);
+      // If no overlay text, add just the border
+      console.log(`🎨 Adding simple border with color ${borderColor}`);
+      try {
+        await sharp(resizedThumbnailPath)
+          .extend({
+            top: 5,
+            bottom: 5,
+            left: 5,
+            right: 5,
+            background: borderColor
+          })
+          .webp({ quality: 80 })
+          .toFile(thumbnailPath);
+        
+        console.log(`✅ Thumbnail with border saved to ${thumbnailPath}`);
+        
+        // Delete the resized file now that we have the final thumbnail
+        if (fs.existsSync(resizedBlurredPath)) {
+          fs.unlinkSync(resizedBlurredPath);
+          console.log(`🗑️ Deleted blurred image: ${resizedBlurredPath}`);
+        }
+        
+      } catch (sharpError) {
+        console.error('❌ Error adding border with sharp:', sharpError);
+        
+        // If border extension fails, just use the resized image as is
+        console.log('⚠️ Using resized image without border as fallback');
+        fs.copyFileSync(resizedThumbnailPath, thumbnailPath);
+      }
+    }
+    
+    // Process zoom version (1200px width, webp format)
+    await sharp(imagePath)
+      .resize({
+        width: 1200,
+        withoutEnlargement: true
+      })
+      .webp({ quality: 85 })
       .toFile(zoomPath);
     
     // Get thumbnail dimensions and size
@@ -184,7 +487,8 @@ const handleUpload = async (req, res) => {
           url: thumbnailUrl,
           width: thumbnailInfo.width,
           height: thumbnailInfo.height,
-          size: Math.round(thumbnailStats.size / 1024)
+          size: Math.round(thumbnailStats.size / 1024),
+          borderColor: borderColor
         },
         zoom: {
           url: zoomUrl,
@@ -202,16 +506,33 @@ const handleUpload = async (req, res) => {
       const tempDir = path.join(__dirname, '../../uploads/temp');
       if (req.file && fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path);
+        console.log(`🗑️ Cleaned up original uploaded file: ${req.file.path}`);
       }
       
       // Clean up any other temp files that might have been created
-      const slug = req.body?.slug;
+      const slug = req.body?.slug || (req.body?.tags ? req.body.tags.trim() : null);
       if (slug) {
         const thumbnailPath = path.join(tempDir, `${slug}-thumbnail.webp`);
+        const resizedThumbnailPath = path.join(tempDir, `${slug}-resized-thumbnail.png`);
+        const tempPngPath = path.join(tempDir, `${slug}-canvas-output.png`);
         const zoomPath = path.join(tempDir, `${slug}-zoom.webp`);
         
-        if (fs.existsSync(thumbnailPath)) fs.unlinkSync(thumbnailPath);
-        if (fs.existsSync(zoomPath)) fs.unlinkSync(zoomPath);
+        if (fs.existsSync(thumbnailPath)) {
+          fs.unlinkSync(thumbnailPath);
+          console.log(`🗑️ Cleaned up thumbnail file: ${thumbnailPath}`);
+        }
+        if (fs.existsSync(resizedThumbnailPath)) {
+          fs.unlinkSync(resizedThumbnailPath);
+          console.log(`🗑️ Cleaned up resized thumbnail file: ${resizedThumbnailPath}`);
+        }
+        if (fs.existsSync(tempPngPath)) {
+          fs.unlinkSync(tempPngPath);
+          console.log(`🗑️ Cleaned up temporary canvas PNG file: ${tempPngPath}`);
+        }
+        if (fs.existsSync(zoomPath)) {
+          fs.unlinkSync(zoomPath);
+          console.log(`🗑️ Cleaned up zoom file: ${zoomPath}`);
+        }
       }
     } catch (cleanupError) {
       console.error("❌ Error during cleanup:", cleanupError);
@@ -404,16 +725,20 @@ const updateImageManifest = async (req, res) => {
       throw error;
     }
     
-    console.log(`Found ${products.length} products with images`);
+    console.log(`Found ${products?.length || 0} products with images`);
     
     // Build the image manifest
     const manifest = {
       lastUpdated: new Date().toISOString(),
       version: 1,
-      totalCount: products.length,
-      images: products.map(product => {
+      totalCount: products?.length || 0,
+      images: (products || []).map(product => {
         const cdnBase = process.env.CDN_ENDPOINT || '';
         const versionParam = `?v=${product.glt_image_updated_at}`;
+        const slug = product.glt_slug;
+        
+        const thumbnailUrl = `${cdnBase}/product-images/dynamic/thumbnail/${slug}.webp${versionParam}`;
+        const zoomUrl = `${cdnBase}/product-images/dynamic/zoom/${slug}.webp${versionParam}`;
         
         return {
           id: product.id,
@@ -424,11 +749,13 @@ const updateImageManifest = async (req, res) => {
           visible: product.glt_visible,
           sortOrder: product.glt_sort_order,
           urls: {
-            thumbnail: `${cdnBase}/product-images/dynamic/thumbnail/${product.glt_slug}.webp${versionParam}`,
-            zoom: `${cdnBase}/product-images/dynamic/zoom/${product.glt_slug}.webp${versionParam}`
+            thumbnail: thumbnailUrl,
+            zoom: zoomUrl
           }
         };
-      })
+      }),
+      zoomWidth: 1600,
+      zoomHeight: 1200
     };
     
     // Save manifest to a temp file
@@ -549,7 +876,7 @@ const updateImageManifest = async (req, res) => {
         success: true,
         message: "Image manifest updated successfully",
         url: manifestUrl,
-        productCount: products.length
+        productCount: products?.length || 0
       });
     }
     
@@ -580,14 +907,19 @@ const handleUploadAndUpdateManifest = async (req, res) => {
     // First handle the upload normally
     await handleUpload(req, res);
     
-    // After successful upload, update the manifest in the background
-    updateImageManifest().catch(error => {
-      console.error("❌ Background manifest update failed:", error);
-    });
+    // If we reach here, the upload was successful and response has been sent
+    // Update the manifest in the background
+    try {
+      await updateImageManifest();
+    } catch (manifestError) {
+      console.error("❌ Background manifest update failed:", manifestError);
+    }
   } catch (error) {
     // If the upload failed, just pass the error through
     console.error("❌ Error in upload process:", error);
-    res.status(500).json({ success: false, error: error.message });
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: error.message });
+    }
   }
 };
 
@@ -596,5 +928,7 @@ module.exports = {
   getProductImages,
   addProductWithTags,
   updateImageManifest,
-  handleUploadAndUpdateManifest
+  handleUploadAndUpdateManifest,
+  generateProductSlug,
+  getShortPriceString
 }; 

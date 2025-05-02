@@ -7,6 +7,7 @@ const app = require('./app');
 const cron = require('node-cron');
 const kiotvietService = require('./services/kiotvietService');
 const { getTodayComponents, formatYMD } = require('./utils/dateUtils');
+const discordService = require('./services/discordService');
 
 // Schedule manifest updates - every hour
 const scheduleManifestUpdates = () => {
@@ -52,6 +53,16 @@ const scheduleKiotVietInvoice = () => {
   });
 };
 
+// Start the Discord bot if token is available
+const startDiscordBot = () => {
+  if (process.env.DISCORD_BOT_TOKEN) {
+    console.log('🤖 Discord bot token found, starting bot...');
+    discordService.startBot();
+  } else {
+    console.log('ℹ️ Discord bot token not found, skipping bot initialization');
+  }
+};
+
 // Start the server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
@@ -59,4 +70,5 @@ app.listen(PORT, () => {
   scheduleManifestUpdates();
   scheduleKiotVietSyncJobs();
   scheduleKiotVietInvoice();
+  startDiscordBot();
 }); 
