@@ -63,8 +63,7 @@ router.post('/jobs', basicAuth, async (req, res) => {
 
     // Find invoice using the provided key
     const { data: invoice, error: invoiceError } = await db.executeQuery(db =>
-      db.supabase
-      .from('kv_invoices')
+      db.from('kv_invoices')
       .select('kiotviet_id')
         .eq(hasId ? 'kiotviet_id' : 'code', hasId ? kiotviet_invoice_id : kiotviet_invoice_code)
         .single()
