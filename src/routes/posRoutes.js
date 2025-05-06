@@ -25,7 +25,7 @@ router.post("/new-glt-invoice", async (req, res) => {
     // purchaseDate: payload.purchase_date || null,
     customerId: payload.kiotviet_customer_id || null,
     discount: payload.invoice_discount || 0,
-    totalPayment: payload.glt_paid ? payload.total_payment : null,
+    totalPayment: payload.total_payment || null,
     description: payload.note,
     method: "Cash", // default
     accountId: null, //default

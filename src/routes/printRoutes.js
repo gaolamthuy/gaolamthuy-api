@@ -41,7 +41,7 @@ router.get('/jobs', basicAuth, async (req, res) => {
  */
 router.post('/jobs', basicAuth, async (req, res) => {
   try {
-    const { kiotviet_invoice_id, kiotviet_invoice_code, doc_type } = req.body;
+    const { kiotviet_invoice_id, kiotviet_invoice_code, doc_type, print_agent_id } = req.body;
 
     // Validate doc_type
     if (!doc_type) {
@@ -74,7 +74,7 @@ router.post('/jobs', basicAuth, async (req, res) => {
     }
 
     // Create print job
-    const job = await printService.createPrintJob(invoice.kiotviet_id, doc_type);
+    const job = await printService.createPrintJob(invoice.kiotviet_id, doc_type, print_agent_id);
     return successResponse(res, job, 201);
   } catch (error) {
     return errorResponse(res, 'Failed to create print job', error);

@@ -228,7 +228,7 @@ const generateProductLabelPrint = async (productCode, quantity = 1) => {
  * @param {string} docType - Document type
  * @returns {Promise<Object>} - Created job
  */
-const createPrintJob = async (invoiceId, docType) => {
+const createPrintJob = async (invoiceId, docType, printAgentId) => {
   // Validate doc_type
   const validDocTypes = ['invoice-a5', 'invoice-k80', 'label'];
   if (!validDocTypes.includes(docType)) {
@@ -241,7 +241,8 @@ const createPrintJob = async (invoiceId, docType) => {
     .insert([{
       kiotviet_invoice_id: invoiceId,
       doc_type: docType,
-      status: 'pending'
+      status: 'pending',
+      print_agent_id: printAgentId
     }])
     .select()
     .single();
