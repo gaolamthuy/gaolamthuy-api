@@ -22,6 +22,13 @@ router.post('/clone/products', kiotvietController.cloneProducts);
 router.post('/clone/customers', kiotvietController.cloneCustomers);
 
 /**
+ * Purchase Order sync endpoints (moved from syncRoutes.js)
+ */
+router.post('/clone/purchase-orders', kiotvietController.syncRecentPurchaseOrders);
+router.post('/clone/purchase-orders/date-range', kiotvietController.syncPurchaseOrdersByDateRange);
+router.post('/clone/kiotviet-data', kiotvietController.syncKiotVietData);
+
+/**
  * Invoice cloning endpoints with different time parameters
  * - Monthly: /clone/invoices/{year}/{month}
  * - Daily: /clone/invoices/{year}/{month}/{day}

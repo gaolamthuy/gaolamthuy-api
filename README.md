@@ -5,6 +5,7 @@ This internal service handles various backend operations for Gao Lam Thuy:
 - Media file uploads and management
 - KiotViet data synchronization
 - Product and category management
+- Purchase order synchronization
 
 ## Project Structure
 
@@ -15,11 +16,14 @@ This internal service handles various backend operations for Gao Lam Thuy:
 │   ├── routes/          # API route definitions
 │   ├── services/        # Business logic and external API integration
 │   ├── utils/           # Utility functions
+│   ├── scripts/         # Script automation for various tasks
 │   ├── app.js           # Express configuration
 │   └── server.js        # HTTP server and scheduled tasks
 ├── scripts/             # Utility scripts
 │   └── test-db-connection.js
 ├── uploads/             # Uploaded files directory
+├── docs/               # Documentation
+│   └── PURCHASE_ORDER_SYNC.md  # Purchase Order sync documentation
 ├── .env                 # Environment variables
 ├── .env.example         # Example environment file
 ├── index.js             # Application entry point
@@ -31,6 +35,7 @@ This internal service handles various backend operations for Gao Lam Thuy:
 - **mediaRoutes.js**: Media upload and handling routes
 - **refreshKiotVietToken.js**: Utility to refresh the KiotViet API token
 - **test-db-connection.js**: Script to test the Supabase database connection
+- **syncPurchaseOrders.js**: Script to sync purchase orders with KiotViet API
 
 ## Environment Variables
 
@@ -99,4 +104,30 @@ Refresh the KiotViet token manually with:
 node src/utils/refreshKiotVietToken.js
 ```
 
-This should also be scheduled to run daily with a cron job. 
+This should also be scheduled to run daily with a cron job.
+
+## Purchase Order Sync
+
+Synchronize purchase orders with the KiotViet API:
+
+```
+# Sync last 3 months (default)
+node src/scripts/syncPurchaseOrders.js
+
+# Sync specific date range
+node src/scripts/syncPurchaseOrders.js --from 01/01/2023 --to 03/31/2023
+
+# Sync all historical data in 3-month chunks
+node src/scripts/syncPurchaseOrders.js --historical
+```
+
+For more details, see [Purchase Order Sync Documentation](docs/PURCHASE_ORDER_SYNC.md).
+
+## API Endpoints
+
+The service exposes several API endpoints:
+
+- `/media` - Media upload and management
+- `/kiotviet` - KiotViet data synchronization
+- `/print` - Print invoices and product labels
+- `/sync` - Synchronization operations (including purchase orders) 

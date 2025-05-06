@@ -8,7 +8,8 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const mediaController = require('../controllers/mediaController');
-const { getShortPriceString } = mediaController;
+const { cloneProducts, cloneCustomers, cloneInvoicesByDay, cloneRecentPurchaseOrders } = require('./kiotvietService');
+const { getShortPriceString, processEnhancedZoomImage } = mediaController;
 
 // Create temp directory if it doesn't exist
 const tempDir = path.join(__dirname, '../../uploads/temp');
@@ -30,11 +31,26 @@ const client = new Client({
   ]
 });
 
-// Define slash command
+// Define slash commands
 const commands = [
   new SlashCommandBuilder()
     .setName('upload-rice-image')
     .setDescription('Get rice images from recent messages and upload them to our system')
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName('clone-kv-data')
+    .setDescription('Clone data from KiotViet')
+    .addStringOption(option =>
+      option.setName('type')
+        .setDescription('Type of data to clone')
+        .setRequired(true)
+        .addChoices(
+          { name: 'Products', value: 'products' },
+          { name: 'Customers', value: 'customers' },
+          { name: 'Today\'s Invoices', value: 'invoices' },
+          { name: 'Purchase Orders', value: 'purchase-orders' },
+          { name: 'All', value: 'all' }
+        ))
     .toJSON()
 ];
 
@@ -158,7 +174,7 @@ async function handleUploadRiceImageCommand(interaction) {
           const imageUrl = attachment.url;
           
           console.log(`📥 Downloading image from: ${imageUrl}`);
-          const response = await axios({
+          const imageResponse = await axios({
             method: 'GET',
             url: imageUrl,
             responseType: 'stream'
@@ -166,7 +182,7 @@ async function handleUploadRiceImageCommand(interaction) {
           
           // Save the image to disk
           const writer = fs.createWriteStream(imagePath);
-          response.data.pipe(writer);
+          imageResponse.data.pipe(writer);
           
           await new Promise((resolve, reject) => {
             writer.on('finish', resolve);
@@ -187,6 +203,7 @@ async function handleUploadRiceImageCommand(interaction) {
           };
           
           // Create a mock response object
+          let uploadResponseData = null;
           const mockRes = {
             status: (code) => ({
               json: (data) => {
@@ -194,14 +211,85 @@ async function handleUploadRiceImageCommand(interaction) {
                 if (data.images && data.images.thumbnail) {
                   console.log(`🖼️ Thumbnail URL: ${data.images.thumbnail.url}`);
                 }
+                uploadResponseData = data; // Store the response data
                 return data;
               }
             }),
             headersSent: false
           };
           
-          // Process the image using the mediaController
-          await mediaController.handleUploadAndUpdateManifest(mockReq, mockRes);
+          // Print contents of temp directory for debugging
+          const tempFiles = fs.readdirSync(tempDir);
+          console.log(`📁 Temp directory contents before processing: ${tempFiles.join(', ')}`);
+          
+          // We need to process the image manually instead of using handleUploadAndUpdateManifest
+          // because we need access to the files before they're deleted
+          
+          try {
+            // First create the thumbnail and zoom images using handleUpload
+            await mediaController.handleUpload(mockReq, mockRes);
+            
+            // Check temp directory again to see what files were created
+            const tempFilesAfter = fs.readdirSync(tempDir);
+            console.log(`📁 Temp directory contents after processing: ${tempFilesAfter.join(', ')}`);
+            
+            // Now process the enhanced image if we have product data
+            if (uploadResponseData && uploadResponseData.product && uploadResponseData.product.category_id) {
+              const productSlug = uploadResponseData.product.glt_slug || uploadResponseData.product.slug;
+              if (!productSlug) {
+                console.log(`⚠️ No product slug available for enhanced image`);
+              } else {
+                const zoomPath = path.join(tempDir, `${productSlug}-zoom.webp`);
+                
+                // Check if the image file still exists (it should at this point)
+                if (fs.existsSync(zoomPath)) {
+                  console.log(`✅ Found zoom image at ${zoomPath}, creating enhanced version`);
+                  try {
+                    const enhancedKey = await processEnhancedZoomImage(
+                      zoomPath, 
+                      productSlug, 
+                      uploadResponseData.product.id,
+                      uploadResponseData.product.category_id,
+                      tempDir
+                    );
+                    if (enhancedKey) {
+                      console.log(`🖼️ Enhanced image created and uploaded: ${enhancedKey}`);
+                    }
+                  } catch (enhancedError) {
+                    console.error(`❌ Error creating enhanced image: ${enhancedError.message}`);
+                  }
+                } else {
+                  console.log(`⚠️ Zoom image not found at ${zoomPath}`);
+                }
+              }
+            } else {
+              console.log(`⚠️ Product data not complete for enhanced image processing`);
+            }
+            
+            // Now we can update the manifest
+            await mediaController.updateImageManifest();
+            
+            // Clean up any remaining temporary files
+            if (fs.existsSync(imagePath)) {
+              fs.unlinkSync(imagePath);
+              console.log(`🗑️ Cleaned up original image: ${imagePath}`);
+            }
+            
+            if (uploadResponseData && uploadResponseData.product) {
+              const productSlug = uploadResponseData.product.glt_slug || uploadResponseData.product.slug;
+              if (productSlug) {
+                const zoomPath = path.join(tempDir, `${productSlug}-zoom.webp`);
+                if (fs.existsSync(zoomPath)) {
+                  fs.unlinkSync(zoomPath);
+                  console.log(`🗑️ Cleaned up zoom image: ${zoomPath}`);
+                }
+              }
+            }
+            
+          } catch (error) {
+            console.error(`❌ Error processing image:`, error);
+            errorCount++;
+          }
           
           processedCount++;
           console.log(`✅ Processed image ${processedCount}: ${attachment.name} with tag ${tag}`);
@@ -232,21 +320,124 @@ async function handleUploadRiceImageCommand(interaction) {
   }
 }
 
-// Event handlers
-client.once('ready', async () => {
-  console.log(`🤖 Discord bot logged in as ${client.user.tag}`);
-  await initializeBot();
-});
-
-client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isCommand()) return;
-  
-  const { commandName } = interaction;
-  
-  if (commandName === 'upload-rice-image') {
-    await handleUploadRiceImageCommand(interaction);
+/**
+ * Handle the /clone-kv-data command to sync data from KiotViet
+ * @param {Object} interaction - Discord interaction object
+ */
+async function handleCloneKvDataCommand(interaction) {
+  try {
+    // Acknowledge the command to show "Bot is thinking..."
+    await interaction.deferReply();
+    
+    // Get the data type from options
+    const dataType = interaction.options.getString('type');
+    console.log(`🔄 Processing /clone-kv-data command for type: ${dataType}...`);
+    
+    if (dataType === 'all') {
+      await interaction.editReply('🔄 Starting to clone all KiotViet data... this may take a while.');
+      
+      // Clone all data types in sequence
+      const results = {
+        products: null,
+        customers: null,
+        invoices: null,
+        purchaseOrders: null
+      };
+      
+      try {
+        await interaction.editReply('🔄 Cloning products from KiotViet...');
+        results.products = await cloneProducts();
+      } catch (error) {
+        console.error('❌ Error cloning products:', error);
+        results.products = { success: false, message: error.message };
+      }
+      
+      try {
+        await interaction.editReply('🔄 Cloning customers from KiotViet...');
+        results.customers = await cloneCustomers();
+      } catch (error) {
+        console.error('❌ Error cloning customers:', error);
+        results.customers = { success: false, message: error.message };
+      }
+      
+      try {
+        const today = new Date();
+        await interaction.editReply('🔄 Cloning today\'s invoices from KiotViet...');
+        results.invoices = await cloneInvoicesByDay(
+          today.getFullYear(),
+          today.getMonth() + 1,
+          today.getDate()
+        );
+      } catch (error) {
+        console.error('❌ Error cloning invoices:', error);
+        results.invoices = { success: false, message: error.message };
+      }
+      
+      try {
+        await interaction.editReply('🔄 Cloning purchase orders from KiotViet...');
+        results.purchaseOrders = await cloneRecentPurchaseOrders();
+      } catch (error) {
+        console.error('❌ Error cloning purchase orders:', error);
+        results.purchaseOrders = { success: false, message: error.message };
+      }
+      
+      // Generate summary message
+      const summary = [
+        '## KiotViet Data Cloning Summary',
+        '',
+        `**Products**: ${results.products?.success ? '✅ Success' : '❌ Failed'} ${results.products?.count?.total ? `(${results.products.count.total} items)` : ''}`,
+        `**Customers**: ${results.customers?.success ? '✅ Success' : '❌ Failed'} ${results.customers?.count?.total ? `(${results.customers.count.total} items)` : ''}`,
+        `**Today's Invoices**: ${results.invoices?.success ? '✅ Success' : '❌ Failed'} ${results.invoices?.count?.total ? `(${results.invoices.count.total} items)` : ''}`,
+        `**Purchase Orders**: ${results.purchaseOrders?.success ? '✅ Success' : '❌ Failed'} ${results.purchaseOrders?.stats?.total ? `(${results.purchaseOrders.stats.total} items)` : ''}`,
+        '',
+        `Completed at: ${new Date().toLocaleString()}`
+      ].join('\n');
+      
+      await interaction.editReply(summary);
+    } else {
+      // Clone single data type
+      await interaction.editReply(`🔄 Starting to clone ${dataType} from KiotViet...`);
+      
+      let result;
+      
+      switch (dataType) {
+        case 'products':
+          result = await cloneProducts();
+          break;
+        case 'customers':
+          result = await cloneCustomers();
+          break;
+        case 'invoices':
+          const today = new Date();
+          result = await cloneInvoicesByDay(
+            today.getFullYear(),
+            today.getMonth() + 1,
+            today.getDate()
+          );
+          break;
+        case 'purchase-orders':
+          result = await cloneRecentPurchaseOrders();
+          break;
+      }
+      
+      if (result.success) {
+        const count = result.count?.total || result.stats?.total || '?';
+        await interaction.editReply(`✅ Successfully cloned ${dataType} from KiotViet (${count} items)\n\nMessage: ${result.message}`);
+      } else {
+        await interaction.editReply(`❌ Failed to clone ${dataType} from KiotViet\n\nError: ${result.message}`);
+      }
+    }
+  } catch (error) {
+    console.error('❌ Error in handleCloneKvDataCommand:', error);
+    
+    // Check if interaction has already been replied to
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply(`❌ Error: ${error.message}`);
+    } else {
+      await interaction.reply(`❌ Error: ${error.message}`);
+    }
   }
-});
+}
 
 /**
  * Start the Discord bot
@@ -258,6 +449,23 @@ function startBot() {
     console.error('❌ DISCORD_BOT_TOKEN is not defined in environment variables');
     return;
   }
+  
+  client.once('ready', () => {
+    console.log(`🤖 Discord bot is ready! Logged in as ${client.user.tag}`);
+    initializeBot();
+  });
+  
+  client.on('interactionCreate', async (interaction) => {
+    if (!interaction.isCommand()) return;
+    
+    const { commandName } = interaction;
+    
+    if (commandName === 'upload-rice-image') {
+      await handleUploadRiceImageCommand(interaction);
+    } else if (commandName === 'clone-kv-data') {
+      await handleCloneKvDataCommand(interaction);
+    }
+  });
   
   client.login(token)
     .then(() => console.log('🤖 Discord bot started successfully'))

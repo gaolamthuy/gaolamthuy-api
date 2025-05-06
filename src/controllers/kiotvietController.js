@@ -5,7 +5,7 @@
 
 const kiotvietService = require('../services/kiotvietService');
 const { successResponse, errorResponse, validationError } = require('../utils/responseHandler');
-const { getTodayComponents, formatYMD } = require('../utils/dateUtils');
+const { getTodayComponents, formatYMD, validateDateFormat } = require('../utils/dateUtils');
 
 /**
  * Clone products from KiotViet API
@@ -112,5 +112,121 @@ exports.cloneInvoicesToday = async (req, res) => {
   } catch (error) {
     console.error('❌ Error cloning today\'s invoices:', error);
     return errorResponse(res, 'Failed to clone today\'s invoices', error);
+  }
+};
+
+/**
+ * Sync purchase orders from KiotViet for the last 3 months
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+exports.syncRecentPurchaseOrders = async (req, res) => {
+  try {
+    console.log('🔄 Starting recent purchase orders sync from KiotViet...');
+    
+    const result = await kiotvietService.cloneRecentPurchaseOrders();
+    
+    if (result.success) {
+      return successResponse(res, {
+        message: result.message,
+        data: result.stats
+      });
+    } else {
+      return errorResponse(res, result.message, null, 500);
+    }
+  } catch (error) {
+    console.error('❌ Error in syncRecentPurchaseOrders controller:', error);
+    return errorResponse(res, `Failed to sync purchase orders: ${error.message}`, error);
+  }
+};
+
+/**
+ * Sync purchase orders from KiotViet for a specific date range
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+exports.syncPurchaseOrdersByDateRange = async (req, res) => {
+  try {
+    // Get from request body
+    const { fromDate, toDate } = req.body;
+    
+    if (!fromDate || !toDate) {
+      return validationError(res, 'Missing required parameters: fromDate and toDate in request body');
+    }
+    
+    // Validate date format (MM/DD/YYYY)
+    const dateRegex = /^(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/\d{4}$/;
+    if (!dateRegex.test(fromDate) || !dateRegex.test(toDate)) {
+      return validationError(res, 'Invalid date format. Please use MM/DD/YYYY format.');
+    }
+    
+    console.log(`🔄 Starting purchase orders sync from ${fromDate} to ${toDate}...`);
+    
+    const result = await kiotvietService.clonePurchaseOrders(fromDate, toDate);
+    
+    if (result.success) {
+      return successResponse(res, {
+        message: result.message,
+        data: result.stats
+      });
+    } else {
+      return errorResponse(res, result.message, null, 500);
+    }
+  } catch (error) {
+    console.error('❌ Error in syncPurchaseOrdersByDateRange controller:', error);
+    return errorResponse(res, `Failed to sync purchase orders: ${error.message}`, error);
+  }
+};
+
+/**
+ * Sync data from KiotViet based on the specified type
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+exports.syncKiotVietData = async (req, res) => {
+  try {
+    const { type } = req.body;
+    
+    if (!type) {
+      return validationError(res, 'Missing required parameter: type in request body');
+    }
+    
+    console.log(`🔄 Starting KiotViet data sync for type: ${type}...`);
+    
+    let result;
+    
+    switch (type.toLowerCase()) {
+      case 'products':
+        result = await kiotvietService.cloneProducts();
+        break;
+      case 'customers':
+        result = await kiotvietService.cloneCustomers();
+        break;
+      case 'invoices':
+        // Get today's date for syncing today's invoices
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = today.getMonth() + 1;
+        const day = today.getDate();
+        result = await kiotvietService.cloneInvoicesByDay(year, month, day);
+        break;
+      case 'purchase-orders':
+        result = await kiotvietService.cloneRecentPurchaseOrders();
+        break;
+      default:
+        return validationError(res, `Unknown data type: ${type}. Supported types: products, customers, invoices, purchase-orders`);
+    }
+    
+    if (result.success) {
+      return successResponse(res, {
+        message: result.message,
+        data: result.count || result.stats
+      });
+    } else {
+      return errorResponse(res, result.message, null, 500);
+    }
+  } catch (error) {
+    console.error('❌ Error in syncKiotVietData controller:', error);
+    return errorResponse(res, `Failed to sync data: ${error.message}`, error);
   }
 }; 

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Label Print</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        @page {
+            size: 100mm 75mm;
+            margin: 0;
+        }
+        html, body {
+            width: 100mm;
+            height: 75mm;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            font-family: 'Montserrat', Arial, sans-serif;
+            transform: scale(0.99);
+            transform-origin: top left;
+        }
+        .label {
+            width: 100mm;
+            height: 75mm;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border: 1px solid black; /* Thin border around the label */
+            box-sizing: border-box; /* Ensures border is part of the total size */
+        }
+        .title {
+            font-size: 30px;
+            font-weight: 700;
+        }
+        .note {
+            font-size: 20px;
+            font-weight: 400;
+        }
+        .details {
+            font-size: 20px;
+            font-weight: 400;
+        }
+        .highlight {
+            font-size: 20px;
+            font-weight: 700;
+        }
+        .footer {
+            font-size: 15px;
+            font-weight: 400;
+        }
+    </style>
+</head>
+<body>
+    <div class="label">
+        <div class="title">5451 - Tiêu chuẩn (kg)</div>
+        ${data.order_template ? `<div class="note">Ghi chú: 5451 cũ 6 tháng, hè thu 2024</div>` : ""}
+        <div class="details">Đơn giá bán lẻ: ${formatCurrency(
+          data.price
+        )} đ</div>
+        <div class="details">Số kg: 10Kg</div>
+        <div class="details">Thành tiền: <span class="highlight">${formatCurrency(
+          data.totalPrice
+        )} đ</span></div>
+        <div class="details">Ngày đóng: 05/05/2025</div>
+        <br>
+        <div class="footer">Gạo Lâm Thúy <br> 23 Ng.Đ.Chiểu, P4, Q.PN, TP.HCM</div>
+    </div>
+</body>
+</html> 

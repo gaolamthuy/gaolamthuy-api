@@ -68,10 +68,34 @@ const isValidDay = (day, month, year) => {
   return dayNum <= lastDayOfMonth;
 };
 
+/**
+ * Validate a date string format (MM/DD/YYYY)
+ * @param {string} dateStr - Date string to validate
+ * @returns {boolean} - True if valid
+ */
+const validateDateFormat = (dateStr) => {
+  if (!dateStr) return false;
+  
+  // Check format using regex
+  const dateRegex = /^(0[1-9]|1[0-2])\/(0[1-9]|[12][0-9]|3[01])\/\d{4}$/;
+  if (!dateRegex.test(dateStr)) return false;
+  
+  // Check if it's a valid date
+  const [month, day, year] = dateStr.split('/').map(Number);
+  const dateObj = new Date(year, month - 1, day);
+  
+  return (
+    dateObj.getMonth() === month - 1 && 
+    dateObj.getDate() === day && 
+    dateObj.getFullYear() === year
+  );
+};
+
 module.exports = {
   getTodayComponents,
   formatYMD,
   isValidYear,
   isValidMonth,
-  isValidDay
+  isValidDay,
+  validateDateFormat
 }; 

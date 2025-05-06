@@ -6,9 +6,10 @@ const { vi } = require('date-fns/locale');
 const { formatInTimeZone } = require('date-fns-tz');
 const path = require('path');
 const fs = require('fs').promises;
-const printJobRoutes = require('./printJobRoutes');
 const printService = require('../services/printService');
-const { htmlResponse, errorResponse } = require('../utils/responseHandler');
+const db = require('../utils/database');
+const { basicAuth } = require('../middlewares/auth');
+const { htmlResponse, errorResponse, successResponse, validationError, notFoundError } = require('../utils/responseHandler');
 
 // Create Supabase client
 const supabase = createClient(
@@ -21,41 +22,16 @@ const formatCurrency = (amount) => {
   return new Intl.NumberFormat('vi-VN').format(amount);
 };
 
-// Use print job routes
-router.use('/jobs', printJobRoutes);
-
 /**
  * GET /print/jobs
  * Get pending print jobs
  */
-router.get('/jobs', async (req, res) => {
+router.get('/jobs', basicAuth, async (req, res) => {
   try {
-    const { data: jobs, error } = await supabase
-      .from('glt_print_jobs')
-      .select('*')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: true });
-
-    if (error) {
-      console.error('Error fetching print jobs:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to fetch print jobs',
-        error: error.message
-      });
-    }
-
-    return res.json({
-      success: true,
-      data: jobs
-    });
+    const jobs = await printService.getPendingPrintJobs();
+    return successResponse(res, jobs);
   } catch (error) {
-    console.error('Error in GET /print/jobs:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-      error: error.message
-    });
+    return errorResponse(res, 'Failed to fetch print jobs', error);
   }
 });
 
@@ -63,72 +39,46 @@ router.get('/jobs', async (req, res) => {
  * POST /print/jobs
  * Create a new print job
  */
-router.post('/jobs', async (req, res) => {
+router.post('/jobs', basicAuth, async (req, res) => {
   try {
-    const { kiotviet_invoice_id, doc_type } = req.body;
-
-    // Validate required fields
-    if (!kiotviet_invoice_id || !doc_type) {
-      return res.status(400).json({
-        success: false,
-        message: 'kiotviet_invoice_id and doc_type are required'
-      });
-    }
+    const { kiotviet_invoice_id, kiotviet_invoice_code, doc_type } = req.body;
 
     // Validate doc_type
-    const validDocTypes = ['invoice', 'label'];
-    if (!validDocTypes.includes(doc_type)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid doc_type. Must be either "invoice" or "label"'
-      });
+    if (!doc_type) {
+      return validationError(res, 'doc_type is required');
     }
 
-    // Check if invoice exists
-    const { data: invoice, error: invoiceError } = await supabase
+    const validDocTypes = ['invoice-a5', 'invoice-80', 'label'];
+    if (!validDocTypes.includes(doc_type)) {
+      return validationError(res, 'Invalid doc_type. Must be either "invoice-a5" or "invoice-80" or "label"');
+    }
+
+    // Ensure exactly one of `kiotviet_invoice_id` or `kiotviet_invoice_code` is provided
+    const hasId = !!kiotviet_invoice_id;
+    const hasCode = !!kiotviet_invoice_code;
+
+    if ((hasId && hasCode) || (!hasId && !hasCode)) {
+      return validationError(res, 'Provide exactly one of kiotviet_invoice_id or kiotviet_invoice_code');
+    }
+
+    // Find invoice using the provided key
+    const { data: invoice, error: invoiceError } = await db.executeQuery(db =>
+      db.supabase
       .from('kv_invoices')
       .select('kiotviet_id')
-      .eq('kiotviet_id', kiotviet_invoice_id)
-      .single();
+        .eq(hasId ? 'kiotviet_id' : 'code', hasId ? kiotviet_invoice_id : kiotviet_invoice_code)
+        .single()
+    );
 
     if (invoiceError || !invoice) {
-      return res.status(404).json({
-        success: false,
-        message: 'Invoice not found'
-      });
+      return notFoundError(res, 'Invoice not found');
     }
 
     // Create print job
-    const { data: job, error } = await supabase
-      .from('glt_print_jobs')
-      .insert([{
-        kiotviet_invoice_id,
-        doc_type,
-        status: 'pending'
-      }])
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error creating print job:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to create print job',
-        error: error.message
-      });
-    }
-
-    return res.status(201).json({
-      success: true,
-      data: job
-    });
+    const job = await printService.createPrintJob(invoice.kiotviet_id, doc_type);
+    return successResponse(res, job, 201);
   } catch (error) {
-    console.error('Error in POST /print/jobs:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-      error: error.message
-    });
+    return errorResponse(res, 'Failed to create print job', error);
   }
 });
 
@@ -136,69 +86,23 @@ router.post('/jobs', async (req, res) => {
  * PUT /print/jobs/:id
  * Update a print job status to done
  */
-router.put('/jobs/:id', async (req, res) => {
+router.put('/jobs/:id', basicAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { doc_type } = req.body;
 
-    // Validate doc_type if provided
-    if (doc_type) {
-      const validDocTypes = ['invoice', 'label'];
-      if (!validDocTypes.includes(doc_type)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid doc_type. Must be either "invoice" or "label"'
-        });
-      }
-    }
-
     // Check if job exists
-    const { data: existingJob, error: checkError } = await supabase
-      .from('glt_print_jobs')
-      .select('*')
-      .eq('id', id)
-      .single();
+    const { data: existingJob, error: checkError } = await db.getRecordByField('glt_print_jobs', 'id', id);
 
     if (checkError || !existingJob) {
-      return res.status(404).json({
-        success: false,
-        message: 'Print job not found'
-      });
+      return notFoundError(res, 'Print job not found');
     }
 
     // Update job
-    const updateData = {
-      status: 'done',
-      ...(doc_type && { doc_type })
-    };
-
-    const { data: updatedJob, error } = await supabase
-      .from('glt_print_jobs')
-      .update(updateData)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error updating print job:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to update print job',
-        error: error.message
-      });
-    }
-
-    return res.json({
-      success: true,
-      data: updatedJob
-    });
+    const updatedJob = await printService.updatePrintJobStatus(id, doc_type);
+    return successResponse(res, updatedJob);
   } catch (error) {
-    console.error('Error in PUT /print/jobs:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-      error: error.message
-    });
+    return errorResponse(res, 'Failed to update print job', error);
   }
 });
 
@@ -210,10 +114,27 @@ router.get('/kv-invoice', async (req, res) => {
   try {
     const { code } = req.query;
     
+    console.log('🔍 Print invoice request received for code:', code);
+    
     if (!code) {
       return errorResponse(res, 'Invoice code is required', null, 400);
     }
     
+    // Test the database connection first
+    const { data: invoice } = await supabase
+      .from('kv_invoices')
+      .select('id, code')
+      .eq('code', code)
+      .single();
+      
+    if (!invoice) {
+      console.error(`❌ Invoice ${code} not found in database`);
+      return errorResponse(res, `Invoice ${code} not found in database`, null, 404);
+    }
+    
+    console.log(`✅ Invoice found in database: ${JSON.stringify(invoice)}`);
+    
+    // Then attempt to generate the invoice print
     const html = await printService.generateInvoicePrint(code);
     return htmlResponse(res, html);
   } catch (error) {
@@ -230,15 +151,153 @@ router.get('/label-product', async (req, res) => {
   try {
     const { code, quantity } = req.query;
     
+    console.log('🔍 Print label request received for code:', code, 'quantity:', quantity);
+    
     if (!code) {
       return errorResponse(res, 'Product code is required', null, 400);
     }
     
+    // Test the database connection first
+    const { data: product } = await supabase
+      .from('kv_products')
+      .select('id, code, name')
+      .eq('code', code)
+      .single();
+      
+    if (!product) {
+      console.error(`❌ Product ${code} not found in database`);
+      return errorResponse(res, `Product ${code} not found in database`, null, 404);
+    }
+    
+    console.log(`✅ Product found in database: ${JSON.stringify(product)}`);
+    
+    // Then attempt to generate the product label
     const html = await printService.generateProductLabelPrint(code, quantity);
     return htmlResponse(res, html);
   } catch (error) {
     console.error('Error generating product label print:', error);
     return errorResponse(res, 'Error generating product label print', error);
+  }
+});
+
+/**
+ * GET /print/debug/db
+ * Test database connection
+ */
+router.get('/debug/db', async (req, res) => {
+  try {
+    console.log('🔍 Testing database connection...');
+    
+    // Test querying products
+    const { data: products, error: productsError } = await supabase
+      .from('kv_products')
+      .select('id, name, code')
+      .limit(3);
+    
+    // Test querying a specific invoice
+    const { data: invoice, error: invoiceError } = await supabase
+      .from('kv_invoices')
+      .select('id, code')
+      .eq('code', 'HD057559')
+      .single();
+    
+    // Return test results
+    return successResponse(res, {
+      products: {
+        success: !productsError,
+        count: products?.length || 0,
+        sample: products?.[0] || null,
+        error: productsError
+      },
+      invoice: {
+        success: !invoiceError,
+        data: invoice || null,
+        error: invoiceError
+      }
+    });
+  } catch (error) {
+    console.error('Error in database debug endpoint:', error);
+    return errorResponse(res, 'Error testing database connection', error);
+  }
+});
+
+/**
+ * GET /print/debug/templates
+ * Test template loading
+ */
+router.get('/debug/templates', async (req, res) => {
+  try {
+    console.log('🔍 Testing template loading...');
+    
+    // Test invoice template
+    const invoicePath = path.join(__dirname, '../../src/views/templates/invoice.html');
+    let invoiceContent, invoiceError;
+    try {
+      invoiceContent = await fs.readFile(invoicePath, 'utf8');
+    } catch (err) {
+      invoiceError = err.message;
+    }
+    
+    // Test label template
+    const labelPath = path.join(__dirname, '../../src/views/templates/label.html');
+    let labelContent, labelError;
+    try {
+      labelContent = await fs.readFile(labelPath, 'utf8');
+    } catch (err) {
+      labelError = err.message;
+    }
+    
+    // Return test results
+    return successResponse(res, {
+      invoice: {
+        path: invoicePath,
+        success: !!invoiceContent,
+        contentLength: invoiceContent?.length || 0,
+        sample: invoiceContent?.substring(0, 50) || null,
+        error: invoiceError
+      },
+      label: {
+        path: labelPath,
+        success: !!labelContent,
+        contentLength: labelContent?.length || 0,
+        sample: labelContent?.substring(0, 50) || null,
+        error: labelError
+      }
+    });
+  } catch (error) {
+    console.error('Error in template debug endpoint:', error);
+    return errorResponse(res, 'Error testing template loading', error);
+  }
+});
+
+/**
+ * GET /print/static-invoice
+ * Return a static invoice HTML for testing
+ */
+router.get('/static-invoice', async (req, res) => {
+  try {
+    const staticHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Static Invoice Test</title>
+      <style>
+        body { font-family: Arial; }
+      </style>
+    </head>
+    <body>
+      <h1>Static Invoice</h1>
+      <p>This is a static test invoice to verify routes are working.</p>
+      <p>Current time: ${new Date().toISOString()}</p>
+    </body>
+    </html>
+    `;
+    
+    res.setHeader('Content-Type', 'text/html');
+    res.send(staticHtml);
+  } catch (error) {
+    console.error('Error serving static invoice:', error);
+    return errorResponse(res, 'Error serving static invoice', error);
   }
 });
 

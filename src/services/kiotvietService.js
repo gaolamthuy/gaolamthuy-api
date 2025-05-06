@@ -875,6 +875,162 @@ async function cloneInvoiceByCode(invoiceCode) {
   }
 }
 
+/**
+ * Clone purchase orders from KiotViet API for a specific date range
+ * @param {string} fromDate - Start date in MM/DD/YYYY format
+ * @param {string} toDate - End date in MM/DD/YYYY format
+ * @returns {Promise<Object>} Results of the operation
+ */
+async function clonePurchaseOrders(fromDate, toDate) {
+  try {
+    console.log(`🔄 Starting purchase order sync from ${fromDate} to ${toDate}`);
+    
+    // Fetch purchase orders from KiotViet API
+    const purchaseOrders = await fetchAllPages('/purchaseorders', { 
+      fromPurchaseDate: fromDate,
+      toPurchaseDate: toDate,
+      status: 3, // Completed orders
+      pageSize: 100
+    });
+    
+    if (purchaseOrders.length === 0) {
+      return { success: true, message: "No purchase orders found to sync", count: 0 };
+    }
+    
+    console.log(`📦 Processing ${purchaseOrders.length} purchase orders...`);
+    
+    let createdCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+    
+    // Process each purchase order
+    for (const po of purchaseOrders) {
+      try {
+        // Check if PO already exists
+        const { data: existingPO } = await supabase
+          .from('kv_purchase_orders')
+          .select('id')
+          .eq('kiotviet_id', po.id)
+          .single();
+          
+        if (existingPO) {
+          console.log(`⏭️ Skipping purchase order ${po.code} (ID: ${po.id}) - already exists`);
+          skippedCount++;
+          continue;
+        }
+        
+        // Insert the purchase order
+        const { data: newPO, error: poError } = await supabase
+          .from('kv_purchase_orders')
+          .insert([{
+            kiotviet_id: po.id,
+            retailer_id: po.retailerId,
+            code: po.code,
+            description: po.description || '',
+            branch_id: po.branchId,
+            branch_name: po.branchName,
+            supplier_id: po.supplierId,
+            supplier_name: po.supplierName,
+            supplier_code: po.supplierCode || '',
+            purchase_by_id: po.purchaseById,
+            purchase_name: po.purchaseName,
+            purchase_date: po.purchaseDate,
+            discount: po.discount,
+            discount_ratio: po.discountRatio,
+            total: po.total,
+            total_payment: po.totalPayment,
+            ex_return_suppliers: po.exReturnSuppliers,
+            ex_return_third_party: po.exReturnThirdParty,
+            status: po.status,
+            created_date: po.createdDate
+          }])
+          .select('id')
+          .single();
+        
+        if (poError) {
+          console.error(`❌ Error inserting purchase order ${po.code}:`, poError);
+          errorCount++;
+          continue;
+        }
+        
+        // Process purchase order details
+        if (po.purchaseOrderDetails && po.purchaseOrderDetails.length > 0) {
+          const detailsToInsert = po.purchaseOrderDetails.map(detail => ({
+            purchase_order_id: newPO.id,
+            product_id: detail.productId,
+            product_code: detail.productCode,
+            product_name: detail.productName,
+            quantity: detail.quantity,
+            price: detail.price,
+            discount: detail.discount,
+            batch_expire_id: detail.productBatchExpire?.id || null,
+            batch_name: detail.productBatchExpire?.batchName || null,
+            batch_expire_date: detail.productBatchExpire?.expireDate || null
+          }));
+          
+          const { error: detailsError } = await supabase
+            .from('kv_purchase_order_details')
+            .insert(detailsToInsert);
+          
+          if (detailsError) {
+            console.error(`❌ Error inserting details for purchase order ${po.code}:`, detailsError);
+            // Continue despite detail errors - the main PO record is already created
+          }
+        }
+        
+        console.log(`✅ Successfully synced purchase order ${po.code} (ID: ${po.id})`);
+        createdCount++;
+      } catch (poError) {
+        console.error(`❌ Error processing purchase order ${po.code || po.id}:`, poError);
+        errorCount++;
+      }
+    }
+    
+    return { 
+      success: true, 
+      message: `Purchase orders sync completed: ${createdCount} created, ${skippedCount} skipped, ${errorCount} failed`, 
+      stats: {
+        total: purchaseOrders.length,
+        created: createdCount,
+        skipped: skippedCount,
+        errors: errorCount
+      }
+    };
+  } catch (error) {
+    console.error("❌ Error in purchase orders sync:", error);
+    return { 
+      success: false, 
+      message: `Purchase orders sync failed: ${error.message}`,
+      error 
+    };
+  }
+}
+
+/**
+ * Clone purchase orders for a 3-month period until today
+ * @returns {Promise<Object>} Results of the operation
+ */
+async function cloneRecentPurchaseOrders() {
+  try {
+    // Calculate date range (3 months ago to today)
+    const today = new Date();
+    const threeMonthsAgo = new Date();
+    threeMonthsAgo.setMonth(today.getMonth() - 3);
+    
+    const fromDate = `${(threeMonthsAgo.getMonth() + 1).toString().padStart(2, '0')}/${threeMonthsAgo.getDate().toString().padStart(2, '0')}/${threeMonthsAgo.getFullYear()}`;
+    const toDate = `${(today.getMonth() + 1).toString().padStart(2, '0')}/${today.getDate().toString().padStart(2, '0')}/${today.getFullYear()}`;
+    
+    return await clonePurchaseOrders(fromDate, toDate);
+  } catch (error) {
+    console.error("❌ Error in recent purchase orders sync:", error);
+    return { 
+      success: false, 
+      message: `Recent purchase orders sync failed: ${error.message}`,
+      error 
+    };
+  }
+}
+
 module.exports = {
   getKiotVietToken,
   getKiotVietHeaders,
@@ -883,5 +1039,7 @@ module.exports = {
   cloneCustomers,
   cloneInvoicesByMonth,
   cloneInvoicesByDay,
-  cloneInvoiceByCode
+  cloneInvoiceByCode,
+  clonePurchaseOrders,
+  cloneRecentPurchaseOrders
 }; 
