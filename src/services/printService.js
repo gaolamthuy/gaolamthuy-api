@@ -230,7 +230,7 @@ const generateProductLabelPrint = async (productCode, quantity = 1) => {
  */
 const createPrintJob = async (invoiceId, docType) => {
   // Validate doc_type
-  const validDocTypes = ['invoice-a5', 'invoice-80', 'label'];
+  const validDocTypes = ['invoice-a5', 'invoice-k80', 'label'];
   if (!validDocTypes.includes(docType)) {
     throw new Error('Invalid document type');
   }
@@ -280,7 +280,7 @@ const getPendingPrintJobs = async () => {
 const updatePrintJobStatus = async (jobId, docType) => {
   // Validate docType if provided
   if (docType) {
-    const validDocTypes = ['invoice-a5', 'invoice-80', 'label'];
+    const validDocTypes = ['invoice-a5', 'invoice-k80', 'label'];
     if (!validDocTypes.includes(docType)) {
       throw new Error('Invalid document type');
     }

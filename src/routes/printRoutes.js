@@ -48,9 +48,9 @@ router.post('/jobs', basicAuth, async (req, res) => {
       return validationError(res, 'doc_type is required');
     }
 
-    const validDocTypes = ['invoice-a5', 'invoice-80', 'label'];
+    const validDocTypes = ['invoice-a5', 'invoice-k80', 'label'];
     if (!validDocTypes.includes(doc_type)) {
-      return validationError(res, 'Invalid doc_type. Must be either "invoice-a5" or "invoice-80" or "label"');
+      return validationError(res, 'Invalid doc_type. Must be either "invoice-a5" or "invoice-k80" or "label"');
     }
 
     // Ensure exactly one of `kiotviet_invoice_id` or `kiotviet_invoice_code` is provided
