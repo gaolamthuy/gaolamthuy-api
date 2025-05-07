@@ -257,6 +257,7 @@ const createPrintJob = async (docRef, docType, printAgentId) => {
 
 /**
  * Get pending print jobs
+ * @param {string} printAgentId - Print agent ID
  * @returns {Promise<Array>} - List of pending jobs
  */
 const getPendingPrintJobs = async (printAgentId) => {

@@ -23,15 +23,12 @@ const formatCurrency = (amount) => {
 };
 
 /**
- * POST /print/jobs
+ * GET /print/jobs query params: print_agent_id
  * Get pending print jobs
- * payload: {
- *  print_agent_id: string
- * }
  */
 router.get('/jobs', basicAuth, async (req, res) => {
   try {
-    const { print_agent_id } = req.body;
+    const { print_agent_id } = req.query;
     const jobs = await printService.getPendingPrintJobs(print_agent_id);
     return successResponse(res, jobs);
   } catch (error) {
