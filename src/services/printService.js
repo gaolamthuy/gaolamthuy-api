@@ -206,7 +206,8 @@ const generateProductLabelPrint = async (productCode, quantity = 1) => {
       quantity: productQty,
       totalPrice: formattedTotal, // already formatted
       packingDate: formattedDate,
-      storeInfo: 'Gạo Lâm Thúy <br> 23 Ng.Đ.Chiểu, P4, Q.PN, TP.HCM'
+      storeInfo: 'Gạo Lâm Thúy <br> 23 Ng.Đ.Chiểu, P4, Q.PN, TP.HCM',
+      margin: '0 auto',
     };
 
     for (const [key, value] of Object.entries(templateData)) {
