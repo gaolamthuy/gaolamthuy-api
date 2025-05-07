@@ -259,11 +259,12 @@ const createPrintJob = async (docRef, docType, printAgentId) => {
  * Get pending print jobs
  * @returns {Promise<Array>} - List of pending jobs
  */
-const getPendingPrintJobs = async () => {
+const getPendingPrintJobs = async (printAgentId) => {
   const { data: jobs, error } = await supabase
     .from('glt_print_jobs')
-    .select('*, kv_invoices(code)')
+    .select('*')
     .eq('status', 'pending')
+    .eq('print_agent_id', printAgentId)
     .order('created_at', { ascending: true });
   
   if (error) {
@@ -276,22 +277,13 @@ const getPendingPrintJobs = async () => {
 /**
  * Update print job status
  * @param {number} jobId - Job ID
- * @param {string} docType - Document type (optional)
+ * @param {string} status - Status
  * @returns {Promise<Object>} - Updated job
  */
-const updatePrintJobStatus = async (jobId, docType) => {
-  // Validate docType if provided
-  if (docType) {
-    const validDocTypes = ['invoice-a5', 'invoice-k80', 'label'];
-    if (!validDocTypes.includes(docType)) {
-      throw new Error('Invalid document type');
-    }
-  }
-  
+const updatePrintJobStatus = async (jobId, status) => {
   // Update job
   const updateData = {
-    status: 'done',
-    ...(docType && { doc_type: docType })
+    status: status
   };
   
   const { data: job, error } = await supabase

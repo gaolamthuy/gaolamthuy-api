@@ -23,12 +23,16 @@ const formatCurrency = (amount) => {
 };
 
 /**
- * GET /print/jobs
+ * POST /print/jobs
  * Get pending print jobs
+ * payload: {
+ *  print_agent_id: string
+ * }
  */
 router.get('/jobs', basicAuth, async (req, res) => {
   try {
-    const jobs = await printService.getPendingPrintJobs();
+    const { print_agent_id } = req.body;
+    const jobs = await printService.getPendingPrintJobs(print_agent_id);
     return successResponse(res, jobs);
   } catch (error) {
     return errorResponse(res, 'Failed to fetch print jobs', error);
@@ -63,12 +67,16 @@ router.post('/jobs', basicAuth, async (req, res) => {
 
 /**
  * PUT /print/jobs/:id
- * Update a print job status to done
+ * Update a print job status
  */
 router.put('/jobs/:id', basicAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const { doc_type } = req.body;
+    const { status } = req.body;
+
+    if (!status) {
+      return badRequestError(res, 'Missing status in request body');
+    }
 
     // Check if job exists
     const { data: existingJob, error: checkError } = await db.getRecordByField('glt_print_jobs', 'id', id);
@@ -78,12 +86,13 @@ router.put('/jobs/:id', basicAuth, async (req, res) => {
     }
 
     // Update job
-    const updatedJob = await printService.updatePrintJobStatus(id, doc_type);
+    const updatedJob = await printService.updatePrintJobStatus(id, status);
     return successResponse(res, updatedJob);
   } catch (error) {
     return errorResponse(res, 'Failed to update print job', error);
   }
 });
+
 
 /**
  * GET /print/kv-invoice
