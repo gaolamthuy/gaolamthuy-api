@@ -41,40 +41,20 @@ router.get('/jobs', basicAuth, async (req, res) => {
  */
 router.post('/jobs', basicAuth, async (req, res) => {
   try {
-    const { kiotviet_invoice_id, kiotviet_invoice_code, doc_type, print_agent_id } = req.body;
+    const { doc_ref, doc_type, print_agent_id } = req.body;
 
     // Validate doc_type
     if (!doc_type) {
       return validationError(res, 'doc_type is required');
     }
 
-    const validDocTypes = ['invoice-a5', 'invoice-k80', 'label'];
+    const validDocTypes = ['invoice','label'];
     if (!validDocTypes.includes(doc_type)) {
-      return validationError(res, 'Invalid doc_type. Must be either "invoice-a5" or "invoice-k80" or "label"');
-    }
-
-    // Ensure exactly one of `kiotviet_invoice_id` or `kiotviet_invoice_code` is provided
-    const hasId = !!kiotviet_invoice_id;
-    const hasCode = !!kiotviet_invoice_code;
-
-    if ((hasId && hasCode) || (!hasId && !hasCode)) {
-      return validationError(res, 'Provide exactly one of kiotviet_invoice_id or kiotviet_invoice_code');
-    }
-
-    // Find invoice using the provided key
-    const { data: invoice, error: invoiceError } = await db.executeQuery(db =>
-      db.from('kv_invoices')
-      .select('kiotviet_id')
-        .eq(hasId ? 'kiotviet_id' : 'code', hasId ? kiotviet_invoice_id : kiotviet_invoice_code)
-        .single()
-    );
-
-    if (invoiceError || !invoice) {
-      return notFoundError(res, 'Invoice not found');
+      return validationError(res, 'Invalid doc_type. Must be either "invoice" or "label"');
     }
 
     // Create print job
-    const job = await printService.createPrintJob(invoice.kiotviet_id, doc_type, print_agent_id);
+    const job = await printService.createPrintJob(doc_ref, doc_type, print_agent_id);
     return successResponse(res, job, 201);
   } catch (error) {
     return errorResponse(res, 'Failed to create print job', error);

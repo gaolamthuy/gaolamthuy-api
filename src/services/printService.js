@@ -224,13 +224,14 @@ const generateProductLabelPrint = async (productCode, quantity = 1) => {
 
 /**
  * Create a print job
- * @param {number|string} invoiceId - KiotViet invoice ID
  * @param {string} docType - Document type
+ * @param {Object} docRef - Document reference
+ * @param {string} printAgentId - Print agent ID
  * @returns {Promise<Object>} - Created job
  */
-const createPrintJob = async (invoiceId, docType, printAgentId) => {
+const createPrintJob = async (docRef, docType, printAgentId) => {
   // Validate doc_type
-  const validDocTypes = ['invoice-a5', 'invoice-k80', 'label'];
+  const validDocTypes = ['invoice', 'label'];
   if (!validDocTypes.includes(docType)) {
     throw new Error('Invalid document type');
   }
@@ -239,10 +240,10 @@ const createPrintJob = async (invoiceId, docType, printAgentId) => {
   const { data: job, error } = await supabase
     .from('glt_print_jobs')
     .insert([{
-      kiotviet_invoice_id: invoiceId,
       doc_type: docType,
       status: 'pending',
-      print_agent_id: printAgentId
+      print_agent_id: printAgentId,
+      doc_ref: docRef
     }])
     .select()
     .single();
