@@ -30,7 +30,7 @@ router.post("/new-glt-invoice", async (req, res) => {
     method: "Cash", // default
     accountId: null, //default
     usingCod: false, // default
-    soldById: 28310, // default
+    soldById: 59020, // default 23nđc
     orderId: null, // default
     invoiceDetails: Array.isArray(payload.items)
       ? payload.items.map(item => ({
