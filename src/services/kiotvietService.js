@@ -17,6 +17,63 @@ const KV_RETAILER = process.env.KIOTVIET_RETAILER;
 const KV_API_URL = process.env.KIOTVIET_PUBLIC_API_URL || 'https://public.kiotapi.com';
 
 /**
+ * Refresh and store KiotViet access token into `system` table
+ */
+async function refreshKiotVietToken() {
+  try {
+    const response = await axios.post(
+      'https://id.kiotviet.vn/connect/token',
+      new URLSearchParams({
+        scopes: 'PublicApi.Access',
+        grant_type: 'client_credentials',
+        client_id: process.env.KIOTVIET_CLIENT_ID,
+        client_secret: process.env.KIOTVIET_CLIENT_SECRET,
+      }).toString(),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      }
+    );
+
+    const { access_token } = response.data;
+
+    if (!access_token) {
+      throw new Error('No access_token returned from KiotViet');
+    }
+
+    const tokenData = access_token;
+
+    const { error } = await supabase
+      .from('system')
+      .upsert(
+        [
+          {
+            title: 'kiotviet',
+            value: tokenData,
+            updated_at: new Date().toISOString(),
+          },
+        ],
+        {
+          onConflict: 'title',
+        }
+      );
+
+    if (error) {
+      throw new Error(`Failed to store token in system table: ${error.message}`);
+    }
+
+    console.log('✅ KiotViet token refreshed and saved.');
+    return tokenData;
+  } catch (error) {
+    console.error('❌ Failed to refresh KiotViet token:', error.message);
+    throw error;
+  }
+}
+
+
+
+/**
  * Get KiotViet authentication token from Supabase
  * @returns {Promise<string>} The authentication token
  */
@@ -1041,5 +1098,6 @@ module.exports = {
   cloneInvoicesByDay,
   cloneInvoiceByCode,
   clonePurchaseOrders,
-  cloneRecentPurchaseOrders
+  cloneRecentPurchaseOrders,
+  refreshKiotVietToken
 }; 

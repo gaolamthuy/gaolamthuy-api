@@ -17,13 +17,24 @@ const scheduleManifestUpdates = () => {
 
 // Schedule KiotViet data sync jobs - daily at midnight
 const scheduleKiotVietSyncJobs = () => {
-  console.log('🕒 Scheduling daily KiotViet data sync jobs');
-  cron.schedule('0 0 * * *', async () => {
+  console.log('🕒 Scheduling KiotViet token refresh at 1AM');
+  cron.schedule('0 1 * * *', async () => {
+    console.log('🔄 Refreshing KiotViet access token...');
+    try {
+      await kiotvietService.refreshKiotVietToken();
+      console.log('✅ KiotViet token refreshed successfully');
+    } catch (err) {
+      console.error('❌ Failed to refresh KiotViet token:', err);
+    }
+  }, {
+    timezone: process.env.TIMEZONE || 'UTC'
+  });
+
+  console.log('🕒 Scheduling daily KiotViet data sync jobs at 2AM');
+  cron.schedule('0 2 * * *', async () => {
     console.log('🌅 Running daily KiotViet data sync jobs');
     try {
-      // Clone customers
       await kiotvietService.cloneCustomers();
-      // Clone products
       await kiotvietService.cloneProducts();
       console.log('✅ Daily KiotViet data sync jobs completed successfully');
     } catch (err) {
@@ -33,6 +44,7 @@ const scheduleKiotVietSyncJobs = () => {
     timezone: process.env.TIMEZONE || 'UTC'
   });
 };
+
 
 // Schedule KiotViet invoice - every 30 minutes
 const scheduleKiotVietInvoice = () => {
