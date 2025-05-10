@@ -84,3 +84,14 @@ app.listen(PORT, () => {
   scheduleKiotVietInvoice();
   startDiscordBot();
 }); 
+
+/**
+ * Manually testing refreshKiotVietToken()
+ */
+// if (process.env.NODE_ENV === 'dev-hot' && process.env.TEST_KV_TOKEN_REFRESH === '1') {
+//   (async () => {
+//     console.log('🔥 Manually testing refreshKiotVietToken()');
+//     await kiotvietService.refreshKiotVietToken();
+//     process.exit(0); // optional: auto exit after test
+//   })();
+// }

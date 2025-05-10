@@ -14,7 +14,7 @@ const supabase = createClient(
 
 // KiotViet API Configuration
 const KV_RETAILER = process.env.KIOTVIET_RETAILER;
-const KV_API_URL = process.env.KIOTVIET_PUBLIC_API_URL || 'https://public.kiotapi.com';
+const KV_API_URL = process.env.KIOTVIET_PUBLIC_API_URL;
 
 /**
  * Refresh and store KiotViet access token into `system` table
@@ -22,7 +22,7 @@ const KV_API_URL = process.env.KIOTVIET_PUBLIC_API_URL || 'https://public.kiotap
 async function refreshKiotVietToken() {
   try {
     const response = await axios.post(
-      'https://id.kiotviet.vn/connect/token',
+      process.env.KIOTVIET_TOKEN_REFRESH_URL,
       new URLSearchParams({
         scopes: 'PublicApi.Access',
         grant_type: 'client_credentials',
