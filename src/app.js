@@ -10,6 +10,7 @@ const mediaRoutes = require('./routes/mediaRoutes');
 const kiotvietRoutes = require('./routes/kiotvietRoutes');
 const posRoutes = require('./routes/posRoutes');
 const printRoutes = require('./routes/printRoutes');
+const paymentRoutes = require('./routes/paymentRoutes');
 
 const app = express();
 
@@ -27,6 +28,7 @@ app.use('/media', mediaRoutes);
 app.use('/kiotviet', kiotvietRoutes);
 app.use('/pos', posRoutes);
 app.use('/print', printRoutes);
+app.use('/payment', paymentRoutes);
 
 // Simple health check
 app.get("/", (req, res) => {
@@ -36,7 +38,8 @@ app.get("/", (req, res) => {
     endpoints: [
       '/media - Media upload and management',
       '/kiotviet - KiotViet data synchronization',
-      '/print - Print invoices and product labels'
+      '/print - Print invoices and product labels',
+      '/payment - Process payment notifications from banks and mobile payment services'
     ]
   });
 });

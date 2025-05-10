@@ -99,7 +99,7 @@ function registerNunitoFonts() {
           style: style
         });
         
-        console.log(`✅ Registered ${fontFile} with weight: ${weight}, style: ${style}`);
+        // console.log(`✅ Registered ${fontFile} with weight: ${weight}, style: ${style}`);
       } catch (error) {
         console.error(`❌ Error registering font ${fontFile}:`, error.message);
       }

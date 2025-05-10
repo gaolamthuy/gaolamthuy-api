@@ -495,7 +495,10 @@ const handleUpload = async (req, res) => {
       .from('kv_products')
       .update({
         glt_image_updated_at: imageUpdatedAt,
-        glt_updated_at: new Date().toISOString()
+        glt_updated_at: new Date().toISOString(),
+        glt_gallery_original_url: req.body.originalUrl || null,
+        glt_gallery_zoom_url: zoomS3Result.url,
+        glt_gallery_thumbnail_url: thumbnailS3Result.url
       })
       .eq('kiotviet_id', kiotvietId)
       .select()
