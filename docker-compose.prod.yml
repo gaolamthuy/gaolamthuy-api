@@ -5,8 +5,8 @@ services:
     image: ghcr.io/gaolamthuy/gaolamthuy-internal-service:latest
     container_name: gaolamthuy-api
     restart: always
-    ports:
-      - ${PORT}:${PORT}
+    expose:
+      - ${PORT}
     env_file:
       - .env
     environment:
