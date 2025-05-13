@@ -71,8 +71,6 @@ async function refreshKiotVietToken() {
   }
 }
 
-
-
 /**
  * Get KiotViet authentication token from Supabase
  * @returns {Promise<string>} The authentication token
@@ -1088,16 +1086,244 @@ async function cloneRecentPurchaseOrders() {
   }
 }
 
+/**
+ * Get product details from KiotViet API
+ * @param {number} productId - KiotViet product ID
+ * @returns {Promise<Object>} Product details
+ */
+async function getProductDetails(productId) {
+    try {
+        const token = await getKiotVietToken();
+        const response = await axios.get(`${KV_API_URL}/products/${productId}`, {
+            headers: {
+                'Retailer': KV_RETAILER,
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        return response.data;
+    } catch (error) {
+        console.error('Error fetching product details:', error);
+        throw new Error(`Failed to fetch product details: ${error.message}`);
+    }
+}
+
+/**
+ * Update product changelog
+ * @param {number} productId - KiotViet product ID
+ * @param {Object} oldData - Old product data
+ * @param {Object} newData - New product data
+ */
+async function updateProductChangelog(productId, oldData, newData) {
+    try {
+        const changelog = {
+            product_id: productId,
+            old_baseprice: oldData.basePrice,
+            new_baseprice: newData.basePrice,
+            old_cost: oldData.inventories[0]?.cost,
+            new_cost: newData.inventories[0]?.cost,
+            old_description: oldData.description,
+            new_description: newData.description,
+            created_at: new Date(),
+            updated_at: new Date()
+        };
+
+        await supabase.from('glt_products_changelog').insert(changelog);
+    } catch (error) {
+        console.error('Error updating product changelog:', error);
+        throw new Error(`Failed to update product changelog: ${error.message}`);
+    }
+}
+
+/**
+ * Update purchase order status
+ * @param {number} productId - KiotViet product ID
+ * @param {string} status - New status
+ */
+async function updatePurchaseOrderStatus(productId, status) {
+    try {
+        await supabase.from('kv_purchase_orders').update({ glt_status: status }).eq('product_id', productId);
+    } catch (error) {
+        console.error('Error updating purchase order status:', error);
+        throw new Error(`Failed to update purchase order status: ${error.message}`);
+    }
+}
+
+/**
+ * Update product in KiotViet
+ * @param {number} productId - KiotViet product ID
+ * @param {Object} updateData - Data to update
+ */
+async function updateKiotVietProduct(productId, updateData) {
+    try {
+        const token = await getKiotVietToken();
+        await axios.put(`${KV_API_URL}/products/${productId}`, updateData, {
+            headers: {
+                'Retailer': KV_RETAILER,
+                'Authorization': `Bearer ${token}`
+            }
+        });
+    } catch (error) {
+        console.error('Error updating KiotViet product:', error);
+        throw new Error(`Failed to update KiotViet product: ${error.message}`);
+    }
+}
+
+/**
+ * Main function to update product
+ * @param {number} productId - KiotViet product ID
+ * @param {string} status - New status
+ * @param {number} cost - New cost
+ * @param {number} basecost - New base cost
+ * @param {string} note - New note/description
+ */
+async function updateProduct(productId, status, cost, basecost, note) {
+    try {
+        // Get current product details
+        const currentProduct = await getProductDetails(productId);
+
+        // Prepare update data
+        const updateData = {
+            basePrice: basecost,
+            description: note || currentProduct.description,
+            inventories: [
+                {
+                    branchId: 15132,
+                    cost: cost
+                }
+            ]
+        };
+
+        // Update product in KiotViet
+        await updateKiotVietProduct(productId, updateData);
+
+        // Update changelog
+        await updateProductChangelog(productId, currentProduct, {
+            ...currentProduct,
+            ...updateData
+        });
+
+        // Update purchase order status
+        await updatePurchaseOrderStatus(productId, status);
+
+    } catch (error) {
+        console.error('Error in updateProduct:', error);
+        throw error;
+    }
+}
+
+/**
+ * Update purchase order detail status and optionally update product
+ * @param {number} purchaseOrderDetailId - Purchase order detail ID
+ * @param {string} status - Status to set ('done' or 'skipped')
+ * @param {Object} [updateData] - Data for updating product if status is 'done'
+ */
+async function updateProductWithStatus(purchaseOrderDetailId, status, updateData) {
+    try {
+        // Update purchase order detail status
+        const { error: updateError } = await supabase
+            .from('kv_purchase_order_details')
+            .update({ glt_status: status })
+            .eq('id', purchaseOrderDetailId);
+
+        if (updateError) {
+            console.error('Error updating purchase order detail status:', updateError);
+            throw new Error(`Failed to update purchase order detail status: ${updateError.message}`);
+        }
+
+        // If status is 'done', proceed with product update
+        if (status === 'done' && updateData) {
+            const { kiotviet_product_id, cost, basecost, glt_note } = updateData;
+
+            // Get current product details
+            const currentProduct = await getProductDetails(kiotviet_product_id);
+
+            // Prepare update data for KiotViet
+            const kvUpdateData = {
+                basePrice: basecost,
+                description: glt_note || currentProduct.description,
+                inventories: [
+                    {
+                        branchId: 15132,
+                        cost: cost
+                    }
+                ]
+            };
+
+            // Update product in KiotViet
+            await updateKiotVietProduct(kiotviet_product_id, kvUpdateData);
+
+            // Update changelog
+            await updateProductChangelog(kiotviet_product_id, currentProduct, {
+                ...currentProduct,
+                ...kvUpdateData
+            });
+        }
+
+    } catch (error) {
+        console.error('Error in updateProductWithStatus:', error);
+        throw error;
+    }
+}
+
+/**
+ * Legacy update product function - kept for backward compatibility
+ * @param {number} productId - KiotViet product ID
+ * @param {string} status - New status
+ * @param {number} cost - New cost
+ * @param {number} basecost - New base cost
+ * @param {string} note - New note/description
+ */
+async function updateProduct(productId, status, cost, basecost, note) {
+    try {
+        // Get current product details
+        const currentProduct = await getProductDetails(productId);
+
+        // Prepare update data
+        const updateData = {
+            basePrice: basecost,
+            description: note || currentProduct.description,
+            inventories: [
+                {
+                    branchId: 15132,
+                    cost: cost
+                }
+            ]
+        };
+
+        // Update product in KiotViet
+        await updateKiotVietProduct(productId, updateData);
+
+        // Update changelog
+        await updateProductChangelog(productId, currentProduct, {
+            ...currentProduct,
+            ...updateData
+        });
+
+        // Update purchase order status
+        await updatePurchaseOrderStatus(productId, status);
+
+    } catch (error) {
+        console.error('Error in updateProduct:', error);
+        throw error;
+    }
+}
+
 module.exports = {
-  getKiotVietToken,
-  getKiotVietHeaders,
-  fetchAllPages,
-  cloneProducts,
-  cloneCustomers,
-  cloneInvoicesByMonth,
-  cloneInvoicesByDay,
-  cloneInvoiceByCode,
-  clonePurchaseOrders,
-  cloneRecentPurchaseOrders,
-  refreshKiotVietToken
+    getKiotVietToken,
+    getKiotVietHeaders,
+    fetchAllPages,
+    cloneProducts,
+    cloneCustomers,
+    cloneInvoicesByMonth,
+    cloneInvoicesByDay,
+    cloneInvoiceByCode,
+    clonePurchaseOrders,
+    cloneRecentPurchaseOrders,
+    refreshKiotVietToken,
+    getProductDetails,
+    updateProductChangelog,
+    updatePurchaseOrderStatus,
+    updateKiotVietProduct,
+    updateProduct,
+    updateProductWithStatus
 }; 

@@ -229,4 +229,83 @@ exports.syncKiotVietData = async (req, res) => {
     console.error('❌ Error in syncKiotVietData controller:', error);
     return errorResponse(res, `Failed to sync data: ${error.message}`, error);
   }
+};
+
+/**
+ * Update a product in KiotViet and related data
+ * @param {Object} req - Express request object
+ * @param {Object} req.body - Request body containing update data
+ * @param {number} req.body.purchase_order_detail__id - Purchase order detail ID
+ * @param {string} req.body.status - Status ('done' or 'skipped')
+ * @param {Object} [req.body.update_if_done] - Data for updating product if status is 'done'
+ * @param {number} [req.body.update_if_done.kiotviet_product_id] - KiotViet product ID
+ * @param {number} [req.body.update_if_done.cost] - New cost value
+ * @param {number} [req.body.update_if_done.basecost] - New base cost value
+ * @param {string} [req.body.update_if_done.glt_note] - New note/description
+ * @param {Object} res - Express response object
+ */
+exports.updateProduct = async (req, res) => {
+    try {
+        const { purchase_order_detail__id, status, update_if_done } = req.body;
+
+        // Validate required fields
+        if (!purchase_order_detail__id || !status) {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing required fields: purchase_order_detail__id and status'
+            });
+        }
+
+        // Validate status value
+        if (!['done', 'skipped'].includes(status)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Status must be either "done" or "skipped"'
+            });
+        }
+
+        // If status is 'done', validate update_if_done data
+        if (status === 'done') {
+            if (!update_if_done) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'update_if_done data is required when status is "done"'
+                });
+            }
+
+            const { kiotviet_product_id, cost, basecost } = update_if_done;
+            if (!kiotviet_product_id || !cost || !basecost) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Missing required fields in update_if_done: kiotviet_product_id, cost, and basecost'
+                });
+            }
+        }
+
+        // Call service to handle the update
+        await kiotvietService.updateProductWithStatus(purchase_order_detail__id, status, update_if_done);
+
+        return res.json({
+            success: true,
+            message: `Product ${status === 'done' ? 'updated' : 'skipped'} successfully`
+        });
+    } catch (error) {
+        console.error('Error updating product:', error);
+        return res.status(500).json({
+            success: false,
+            message: error.message || 'Error updating product'
+        });
+    }
+};
+
+module.exports = {
+    cloneProducts: exports.cloneProducts,
+    cloneCustomers: exports.cloneCustomers,
+    cloneInvoicesByMonth: exports.cloneInvoicesByMonth,
+    cloneInvoicesByDay: exports.cloneInvoicesByDay,
+    cloneInvoicesToday: exports.cloneInvoicesToday,
+    syncRecentPurchaseOrders: exports.syncRecentPurchaseOrders,
+    syncPurchaseOrdersByDateRange: exports.syncPurchaseOrdersByDateRange,
+    syncKiotVietData: exports.syncKiotVietData,
+    updateProduct: exports.updateProduct
 }; 

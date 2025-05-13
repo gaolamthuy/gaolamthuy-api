@@ -16,9 +16,14 @@ const kiotvietController = require('../controllers/kiotvietController');
 router.use(basicAuth);
 
 /**
- * Clone endpoints
+ * Product endpoints
  */
 router.post('/clone/products', kiotvietController.cloneProducts);
+router.post('/product/update', kiotvietController.updateProduct);
+
+/**
+ * Customer endpoints
+ */
 router.post('/clone/customers', kiotvietController.cloneCustomers);
 
 /**
