@@ -84,6 +84,11 @@ app.get("/test-print", (req, res) => {
   `);
 });
 
+// Health check endpoint for deployment platform
+app.get('/healthz', (req, res) => {
+  res.status(200).send('OK');
+});
+
 // Catch-all for 404 errors
 app.use((req, res, next) => {
   return errorResponse(res, `Route ${req.originalUrl} not found`, null, 404);

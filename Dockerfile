@@ -23,3 +23,6 @@ EXPOSE ${PORT}
 
 # Start app
 CMD ["node", "index.js"]
+
+# Healthcheck endpoint
+HEALTHCHECK CMD curl --fail http://localhost:${PORT}/healthz || exit 1
