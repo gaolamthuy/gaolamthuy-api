@@ -19,24 +19,42 @@ const verifyWebhookSignature = (req, res, next) => {
             });
         }
 
+        // The signature from KiotViet comes in format "sha1=HASH"
+        const [algorithm, hash] = signature.split('=');
+        if (algorithm !== 'sha1' || !hash) {
+            console.warn('❌ Invalid signature format');
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid signature format'
+            });
+        }
+
         // Get the raw body and secret
+        // KiotViet expects the raw JSON string, not a stringified parsed body
         const body = JSON.stringify(req.body);
         const secret = process.env.KIOTVIET_WEBHOOK_SECRET;
 
-        // Calculate expected signature
-        const expectedSignature = crypto
-            .createHmac('sha256', secret)
+        // Calculate expected signature using SHA1
+        const expectedHash = crypto
+            .createHmac('sha1', secret)
             .update(body)
             .digest('hex');
 
         // Compare signatures
-        if (signature !== expectedSignature) {
+        if (hash !== expectedHash) {
             console.warn('❌ Invalid webhook signature');
+            console.log('Received hash:', hash);
+            console.log('Expected hash:', expectedHash);
+            console.log('Body used for hash:', body);
             return res.status(401).json({
                 success: false,
                 message: 'Invalid signature'
             });
         }
+
+        // Add webhook event info to request for later use
+        req.webhookEvent = req.headers['x-webhook-event'];
+        req.webhookDelivery = req.headers['x-webhook-delivery'];
 
         next();
     } catch (error) {
