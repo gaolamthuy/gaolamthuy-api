@@ -15,6 +15,18 @@ const webhookRoutes = require('./routes/webhookRoutes');
 
 const app = express();
 
+// Capture raw body for webhook signature verification
+app.use('/kiotviet/webhook', (req, res, next) => {
+    let rawBody = '';
+    req.on('data', chunk => {
+        rawBody += chunk.toString();
+    });
+    req.on('end', () => {
+        req.rawBody = rawBody;
+        next();
+    });
+});
+
 // Middleware
 app.use(morgan('dev'));
 app.use(cors());
