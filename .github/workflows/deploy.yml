@@ -30,3 +30,11 @@ jobs:
       - name: Push Docker image
         run: |
           docker push ghcr.io/gaolamthuy/gaolamthuy-internal-service:latest
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Coolify Deploy Webhook
+        run: |
+          curl -X POST ${{ secrets.COOLIFY_DEPLOY_WEBHOOK_URL }}
