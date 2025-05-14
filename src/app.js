@@ -11,6 +11,7 @@ const kiotvietRoutes = require('./routes/kiotvietRoutes');
 const posRoutes = require('./routes/posRoutes');
 const printRoutes = require('./routes/printRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
+const webhookRoutes = require('./routes/webhookRoutes');
 
 const app = express();
 
@@ -29,6 +30,7 @@ app.use('/kiotviet', kiotvietRoutes);
 app.use('/pos', posRoutes);
 app.use('/print', printRoutes);
 app.use('/payment', paymentRoutes);
+app.use('/', webhookRoutes);  // Webhook routes at root level
 
 // Simple health check
 app.get("/", (req, res) => {

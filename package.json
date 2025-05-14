@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
+    "kv:test-refresh": "NODE_ENV=dev-hot TEST_KV_TOKEN_REFRESH=1 node src/server.js",
     "test:db": "node src/scripts/bak/test-db-connection.js",
     "token:refresh": "node src/utils/refreshKiotVietToken.js",
     "kv:check": "node src/scripts/bak/check-products.js",
