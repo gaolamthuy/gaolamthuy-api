@@ -8,14 +8,24 @@ const crypto = require('crypto');
  */
 const verifyWebhookSignature = (req, res, next) => {
     try {
-        console.log('🔍 Starting webhook signature verification');
+        console.log('🔐 Starting webhook signature verification');
+        /*
+        console.log('📍 Current middleware state:', {
+            hasRawBody: !!req.rawBody,
+            rawBodyLength: req.rawBody?.length,
+            hasBody: !!req.body,
+            bodyType: typeof req.body,
+            path: req.path,
+            method: req.method
+        });
+        */
         
         // Log all relevant headers
         console.log('📨 Webhook Headers:', {
             signature: req.headers['x-hub-signature'],
             event: req.headers['x-webhook-event'],
             delivery: req.headers['x-webhook-delivery'],
-            contentType: req.headers['content-type']
+            // contentType: req.headers['content-type'] // Can be verbose
         });
 
         const signature = req.headers['x-hub-signature'];
@@ -29,11 +39,11 @@ const verifyWebhookSignature = (req, res, next) => {
             });
         }
 
-        // The signature from KiotViet comes in format "sha1=HASH"
-        const [algorithm, hash] = signature.split('=');
-        console.log('🔑 Signature parts:', { algorithm, hash });
+        // The signature might be SHA256 even if labeled as SHA1
+        const [declaredAlgorithm, hash] = signature.split('=');
+        // console.log('🔑 Signature parts:', { declaredAlgorithm, hash }); // Can be verbose
 
-        if (algorithm !== 'sha1' || !hash) {
+        if (!hash) {
             console.warn('❌ Invalid signature format');
             return res.status(401).json({
                 success: false,
@@ -42,56 +52,67 @@ const verifyWebhookSignature = (req, res, next) => {
         }
 
         // Get the raw body and secret
-        const rawBody = JSON.stringify(req.body);
-        const secret = process.env.KIOTVIET_WEBHOOK_SECRET;
+        if (!req.rawBody) {
+            console.error('❌ No raw body found in request');
+            return res.status(500).json({
+                success: false,
+                message: 'Internal server error - no raw body'
+            });
+        }
 
-        console.log('🔐 Verification details:', {
-            secretLength: secret ? secret.length : 0,
-            bodyLength: rawBody.length,
-            bodyPreview: rawBody.substring(0, 100) + '...' // Log first 100 chars of body
+        const rawBody = req.rawBody;
+        const secret = process.env.KIOTVIET_WEBHOOK_SECRET || 'webhook_mySecretKey_2025';
+
+        // Try both SHA1 and SHA256 since KiotViet might be mislabeling
+        const algorithms = ['sha1', 'sha256'];
+        const results = {};
+
+        for (const algorithm of algorithms) {
+            const calculatedHash = crypto
+                .createHmac(algorithm, secret)
+                .update(rawBody)
+                .digest('hex');
+            results[algorithm] = calculatedHash;
+        }
+
+        console.log('🔐 Verification attempts:', {
+            receivedHash: hash,
+            // sha1Result: results.sha1, // Keep for debugging if necessary, but can be verbose
+            // sha256Result: results.sha256,
+            sha1Match: hash === results.sha1,
+            sha256Match: hash === results.sha256,
+            hashLength: hash.length,
+            // bodyPreview: rawBody.substring(0, 100) + '...' // Can be verbose
         });
 
-        // Try different methods of calculating the signature
-        const methods = {
-            // Method 1: Direct SHA1 HMAC
-            method1: crypto.createHmac('sha1', secret).update(rawBody).digest('hex'),
-            
-            // Method 2: SHA1 HMAC with UTF8 encoding
-            method2: crypto.createHmac('sha1', secret).update(rawBody, 'utf8').digest('hex'),
-            
-            // Method 3: SHA1 HMAC with Buffer
-            method3: crypto.createHmac('sha1', secret).update(Buffer.from(rawBody)).digest('hex')
-        };
-
-        console.log('🔍 Hash comparison:', {
-            received: hash,
-            method1: methods.method1,
-            method2: methods.method2,
-            method3: methods.method3
-        });
-
-        // Try all methods for matching
-        const matchFound = Object.entries(methods).find(([method, calculatedHash]) => hash === calculatedHash);
-
-        if (matchFound) {
-            console.log(`✅ Signature verified using ${matchFound[0]}`);
+        // Check if either hash matches
+        if (hash === results.sha1 || hash === results.sha256) {
+            const matchedAlgorithm = hash === results.sha1 ? 'SHA1' : 'SHA256';
+            console.log(`✅ Signature verified successfully using ${matchedAlgorithm}`);
             // Add webhook event info to request for later use
             req.webhookEvent = req.headers['x-webhook-event'];
             req.webhookDelivery = req.headers['x-webhook-delivery'];
             next();
         } else {
-            console.warn('❌ No matching signature found');
-            return res.status(401).json({
+            console.warn('❌ Invalid signature - no matching hash found');
+            console.log('Raw body used for calculation:', rawBody);
+            console.log('Received hash:', hash);
+            console.log('SHA1 calculated:', results.sha1);
+            console.log('SHA256 calculated:', results.sha256);
+            return res.status(200).json({  // Changed to 200 to acknowledge receipt
                 success: false,
-                message: 'Invalid signature'
+                message: 'Invalid signature, but acknowledging receipt',
+                error: 'Signature verification failed'
             });
         }
 
     } catch (error) {
         console.error('❌ Error verifying webhook signature:', error);
-        return res.status(500).json({
+        console.error(error.stack);
+        return res.status(200).json({  // Changed to 200 to acknowledge receipt
             success: false,
-            message: 'Error verifying signature'
+            message: 'Error verifying signature, but acknowledging receipt',
+            error: error.message || 'Unknown error'
         });
     }
 };
