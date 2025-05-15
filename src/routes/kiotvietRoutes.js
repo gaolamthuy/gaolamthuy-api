@@ -8,6 +8,7 @@ const router = express.Router();
 const { basicAuth } = require('../middlewares/auth');
 const { isValidYear, isValidMonth, isValidDay } = require('../utils/dateUtils');
 const { validationError } = require('../utils/responseHandler');
+const { cloneProducts, clonePricebooks } = require('../services/kiotvietService');
 
 // Import controllers
 const kiotvietController = require('../controllers/kiotvietController');
@@ -18,8 +19,37 @@ router.use(basicAuth);
 /**
  * Product endpoints
  */
-router.post('/clone/products', kiotvietController.cloneProducts);
-router.post('/product/update', kiotvietController.updateProduct);
+router.post('/clone/products', async (req, res) => {
+  try {
+    const result = await cloneProducts();
+    res.json(result);
+  } catch (error) {
+    console.error('Error cloning products:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error cloning products',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route POST /kiotviet/clone/pricebooks
+ * @description Clone pricebooks from KiotViet API
+ */
+router.post('/clone/pricebooks', async (req, res) => {
+  try {
+    const result = await clonePricebooks();
+    res.json(result);
+  } catch (error) {
+    console.error('Error cloning pricebooks:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error cloning pricebooks',
+      error: error.message
+    });
+  }
+});
 
 /**
  * Customer endpoints
@@ -31,7 +61,6 @@ router.post('/clone/customers', kiotvietController.cloneCustomers);
  */
 router.post('/clone/purchase-orders', kiotvietController.syncRecentPurchaseOrders);
 router.post('/clone/purchase-orders/date-range', kiotvietController.syncPurchaseOrdersByDateRange);
-router.post('/clone/kiotviet-data', kiotvietController.syncKiotVietData);
 
 /**
  * Invoice cloning endpoints with different time parameters

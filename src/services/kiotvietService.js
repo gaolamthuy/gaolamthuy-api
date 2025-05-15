@@ -176,16 +176,36 @@ async function fetchAllPages(endpoint, params = {}) {
 }
 
 /**
- * Fetch and save products from KiotViet API
+ * Fetch and save products from KiotViet API with pricebook support
  * @returns {Promise<Object>} Results of the operation
  */
 async function cloneProducts() {
   try {
-    console.log("🔄 Starting product sync process");
+    console.log("🔄 Starting product sync process with pricebook support");
     
-    // Fetch products from KiotViet API
+    // Ensure default customer group exists
+    const { error: groupError } = await supabase
+      .from('kv_customer_groups')
+      .upsert({
+        name: '',
+        description: 'Default customer group',
+        is_active: true,
+        created_at: new Date(),
+        updated_at: new Date()
+      }, {
+        onConflict: 'name'
+      });
+
+    if (groupError) {
+      console.error("❌ Error ensuring default customer group exists:", groupError);
+      throw new Error("Failed to ensure default customer group exists");
+    }
+
+    // Fetch products from KiotViet API with pricebook data
     const products = await fetchAllPages('/products', { 
-      includeInventory: true
+      pageSize: 100,
+      includeInventory: true,
+      includePricebook: true
     });
     
     if (products.length === 0) {
@@ -199,6 +219,7 @@ async function cloneProducts() {
     let successCount = 0;
     let errorCount = 0;
     let inventoryCount = 0;
+    let pricebookCount = 0;
     
     for (let i = 0; i < products.length; i += batchSize) {
       const batch = products.slice(i, Math.min(i + batchSize, products.length));
@@ -227,6 +248,7 @@ async function cloneProducts() {
       }
       
       const productRows = [];
+      const pricebookRows = [];
       
       for (const product of batch) {
         try {
@@ -284,6 +306,137 @@ async function cloneProducts() {
             ...gltFields
           });
           
+          // Collect unique pricebooks
+          const uniquePricebooks = new Set();
+          if (product.priceBooks && Array.isArray(product.priceBooks)) {
+            for (const pricebook of product.priceBooks) {
+              if (pricebook.isActive) {
+                uniquePricebooks.add(JSON.stringify({
+                  id: pricebook.priceBookId,
+                  name: pricebook.priceBookName,
+                  is_active: true,
+                  is_global: true,
+                  customer_group_name: '',
+                  created_at: new Date(),
+                  updated_at: new Date(),
+                  start_date: pricebook.startDate ? new Date(pricebook.startDate) : null,
+                  end_date: pricebook.endDate ? new Date(pricebook.endDate) : null
+                }));
+              }
+            }
+          }
+
+          // Ensure pricebooks exist
+          if (uniquePricebooks.size > 0) {
+            const pricebookData = Array.from(uniquePricebooks).map(pb => JSON.parse(pb));
+            console.log(`Ensuring ${pricebookData.length} pricebooks exist`);
+            
+            const { error: pricebookError } = await supabase
+              .from('kv_pricebooks')
+              .upsert(pricebookData, {
+                onConflict: 'id',
+                ignoreDuplicates: false
+              });
+
+            if (pricebookError) {
+              console.error("❌ Error upserting pricebooks:", pricebookError);
+              console.error("Sample pricebook data:", pricebookData[0]);
+            } else {
+              console.log("✅ Successfully ensured pricebooks exist");
+            }
+          }
+          
+          // Process pricebook data if available
+          if (product.priceBooks && Array.isArray(product.priceBooks)) {
+            console.log(`Found ${product.priceBooks.length} pricebooks for product ${product.id}`);
+            for (const pricebook of product.priceBooks) {
+              // Skip inactive pricebooks
+              if (!pricebook.isActive) {
+                console.log(`Skipping inactive pricebook ${pricebook.priceBookId}`);
+                continue;
+              }
+
+              console.log(`Processing pricebook: ${JSON.stringify(pricebook)}`);
+              
+              // Get the existing product ID if it exists
+              const { data: existingProduct } = await supabase
+                .from('kv_products')
+                .select('id')
+                .eq('kiotviet_id', product.id)
+                .single();
+                
+              if (!existingProduct) {
+                console.log(`No existing product found for KiotViet ID ${product.id}`);
+                continue;
+              }
+
+              // First ensure the pricebook exists
+              const pricebookData = {
+                id: pricebook.priceBookId,
+                name: pricebook.priceBookName,
+                is_active: true,
+                is_global: true,
+                customer_group_name: '',
+                created_at: new Date(),
+                updated_at: new Date()
+              };
+
+              const { error: pricebookError } = await supabase
+                .from('kv_pricebooks')
+                .upsert([pricebookData], {
+                  onConflict: 'id',
+                  ignoreDuplicates: false
+                });
+
+              if (pricebookError) {
+                console.error(`❌ Error ensuring pricebook exists:`, pricebookError);
+                continue;
+              }
+
+              // Then add the product pricebook entry
+              const productPricebookData = {
+                pricebook_id: pricebook.priceBookId,
+                pricebook_name: pricebook.priceBookName,
+                customer_group_name: '', // Using empty string as default group
+                product_id: existingProduct.id,
+                product_kiotviet_id: product.id,
+                price: pricebook.price,
+                is_active: true,
+                start_date: pricebook.startDate ? new Date(pricebook.startDate) : null,
+                end_date: pricebook.endDate ? new Date(pricebook.endDate) : null,
+                created_at: new Date(),
+                updated_at: new Date()
+              };
+
+              // Delete any existing entry
+              const { error: deleteError } = await supabase
+                .from('kv_product_pricebooks')
+                .delete()
+                .eq('product_id', existingProduct.id)
+                .eq('pricebook_id', pricebook.priceBookId);
+
+              if (deleteError) {
+                console.error(`❌ Error deleting existing product pricebook:`, deleteError);
+                continue;
+              }
+
+              // Insert new entry
+              const { error: insertError } = await supabase
+                .from('kv_product_pricebooks')
+                .insert([productPricebookData]);
+
+              if (insertError) {
+                console.error(`❌ Error inserting product pricebook:`, insertError);
+                console.error(`Data:`, productPricebookData);
+              } else {
+                pricebookCount++;
+                console.log(`✅ Added pricebook entry for product ${product.id}`);
+              }
+            }
+          } else {
+            console.log(`No pricebooks found for product ${product.id}`);
+          }
+          
           successCount++;
         } catch (error) {
           console.error(`❌ Error processing product ${product.code}:`, error.message);
@@ -304,13 +457,10 @@ async function cloneProducts() {
           console.error("❌ Error upserting products:", error);
           errorCount += productRows.length;
           successCount -= productRows.length;
-          continue; // Skip processing inventories if products failed
+          continue;
         }
         
-        // Process inventories for each product
-        console.log(`📦 Processing inventories for ${productRows.length} products`);
-        
-        // Get product IDs mapping
+        // Get product IDs mapping for pricebooks and inventories
         const { data: productMappings, error: mappingError } = await supabase
           .from('kv_products')
           .select('id, kiotviet_id')
@@ -326,6 +476,9 @@ async function cloneProducts() {
         for (const mapping of productMappings) {
           productIdMap[mapping.kiotviet_id] = mapping.id;
         }
+        
+        // Process inventories for each product
+        console.log(`📦 Processing inventories for ${productRows.length} products`);
         
         // Process inventories in batches
         for (const product of batch) {
@@ -349,7 +502,7 @@ async function cloneProducts() {
               cost: inventory.cost,
               product_name: inventory.productName,
               on_hand: inventory.onHand || 0,
-              on_sales: inventory.onHand || 0,  // Assuming on_sales is the same as onHand if not provided
+              on_sales: inventory.onHand || 0,
               reserved: inventory.reserved || 0,
               minimum_inventory: inventory.minQuantity || 0,
               last_sync: new Date(),
@@ -377,23 +530,24 @@ async function cloneProducts() {
             if (insertError) {
               console.error(`❌ Error inserting inventories for product ${product.code}:`, insertError);
             } else {
-              inventoryCount += inventoryRows.length;
+              inventoryCount += insertCount;
             }
           }
         }
       }
     }
     
-    console.log(`✅ Completed product sync: ${successCount} products, ${inventoryCount} inventories`);
+    console.log(`✅ Completed product sync: ${successCount} products, ${inventoryCount} inventories, ${pricebookCount} pricebook entries`);
     
     return {
       success: true,
-      message: `Products synced successfully: ${successCount} products, ${inventoryCount} inventories`,
+      message: `Products synced successfully: ${successCount} products, ${inventoryCount} inventories, ${pricebookCount} pricebook entries`,
       count: {
         total: products.length,
         success: successCount,
         error: errorCount,
-        inventories: inventoryCount
+        inventories: inventoryCount,
+        pricebooks: pricebookCount
       }
     };
   } catch (error) {
@@ -1266,46 +1420,171 @@ async function updateProductWithStatus(purchaseOrderDetailId, status, updateData
 }
 
 /**
- * Legacy update product function - kept for backward compatibility
- * @param {number} productId - KiotViet product ID
- * @param {string} status - New status
- * @param {number} cost - New cost
- * @param {number} basecost - New base cost
- * @param {string} note - New note/description
+ * Fetch and save pricebooks from KiotViet API
+ * @returns {Promise<Object>} Results of the operation
  */
-async function updateProduct(productId, status, cost, basecost, note) {
-    try {
-        // Get current product details
-        const currentProduct = await getProductDetails(productId);
-
-        // Prepare update data
-        const updateData = {
-            basePrice: basecost,
-            description: note || currentProduct.description,
-            inventories: [
-                {
-                    branchId: 15132,
-                    cost: cost
-                }
-            ]
-        };
-
-        // Update product in KiotViet
-        await updateKiotVietProduct(productId, updateData);
-
-        // Update changelog
-        await updateProductChangelog(productId, currentProduct, {
-            ...currentProduct,
-            ...updateData
-        });
-
-        // Update purchase order status
-        await updatePurchaseOrderStatus(productId, status);
-
-    } catch (error) {
-        console.error('Error in updateProduct:', error);
-        throw error;
+async function clonePricebooks() {
+  try {
+    console.log("🔄 Starting pricebook sync process");
+    
+    // Fetch pricebooks from KiotViet API
+    const pricebooks = await fetchAllPages('/pricebooks', { 
+      includePriceBookCustomerGroups: true
+    });
+    
+    if (pricebooks.length === 0) {
+      return { success: true, message: "No pricebooks found to sync", count: 0 };
     }
+    
+    console.log(`📚 Processing ${pricebooks.length} pricebooks...`);
+    
+    let successCount = 0;
+    let errorCount = 0;
+    let productPricebookCount = 0;
+    
+    // Process pricebooks
+    for (const pricebook of pricebooks) {
+      try {
+        // For each customer group in the pricebook
+        if (pricebook.customerGroups && Array.isArray(pricebook.customerGroups)) {
+          for (const group of pricebook.customerGroups) {
+            // Map pricebook data for each customer group
+            const pricebookData = {
+              id: pricebook.id,
+              name: pricebook.name,
+              is_active: pricebook.isActive,
+              is_global: true, // Default to true as per schema
+              start_date: pricebook.startDate ? new Date(pricebook.startDate) : null,
+              end_date: pricebook.endDate ? new Date(pricebook.endDate) : null,
+              customer_group_name: group.customerGroupName || 'default',
+              created_at: new Date(),
+              updated_at: new Date()
+            };
+            
+            // Upsert pricebook
+            const { error: pricebookError } = await supabase
+              .from('kv_pricebooks')
+              .upsert([pricebookData], {
+                onConflict: 'id',
+                ignoreDuplicates: false
+              });
+              
+            if (pricebookError) {
+              console.error(`❌ Error upserting pricebook ${pricebook.name} for group ${group.customerGroupName}:`, pricebookError);
+              errorCount++;
+              continue;
+            }
+
+            // Process product prices if available
+            if (pricebook.priceBookProducts && Array.isArray(pricebook.priceBookProducts)) {
+              const productPrices = [];
+              
+              for (const product of pricebook.priceBookProducts) {
+                // Get the internal product ID from kv_products
+                const { data: productData, error: productError } = await supabase
+                  .from('kv_products')
+                  .select('id')
+                  .eq('kiotviet_id', product.productId)
+                  .single();
+                
+                if (productError) {
+                  console.error(`❌ Error finding product ${product.productId}:`, productError);
+                  continue;
+                }
+
+                productPrices.push({
+                  pricebook_id: pricebook.id,
+                  pricebook_name: pricebook.name,
+                  customer_group_name: group.customerGroupName || 'default',
+                  product_id: productData.id,
+                  product_kiotviet_id: product.productId,
+                  price: product.price,
+                  is_active: true,
+                  start_date: pricebook.startDate ? new Date(pricebook.startDate) : null,
+                  end_date: pricebook.endDate ? new Date(pricebook.endDate) : null
+                });
+              }
+
+              if (productPrices.length > 0) {
+                // Delete existing product prices for this pricebook and customer group
+                const { error: deleteError } = await supabase
+                  .from('kv_product_pricebooks')
+                  .delete()
+                  .eq('pricebook_id', pricebook.id)
+                  .eq('customer_group_name', group.customerGroupName || 'default');
+                
+                if (deleteError) {
+                  console.error(`❌ Error deleting existing product prices for pricebook ${pricebook.name}:`, deleteError);
+                  continue;
+                }
+
+                // Insert new product prices
+                const { error: insertError, count } = await supabase
+                  .from('kv_product_pricebooks')
+                  .insert(productPrices);
+                
+                if (insertError) {
+                  console.error(`❌ Error inserting product prices for pricebook ${pricebook.name}:`, insertError);
+                } else {
+                  productPricebookCount += count;
+                }
+              }
+            }
+            
+            successCount++;
+          }
+        } else {
+          // Handle pricebooks without customer groups (use default group)
+          const pricebookData = {
+            id: pricebook.id,
+            name: pricebook.name,
+            is_active: pricebook.isActive,
+            is_global: true,
+            start_date: pricebook.startDate ? new Date(pricebook.startDate) : null,
+            end_date: pricebook.endDate ? new Date(pricebook.endDate) : null,
+            customer_group_name: 'default',
+            created_at: new Date(),
+            updated_at: new Date()
+          };
+          
+          // Upsert pricebook
+          const { error: pricebookError } = await supabase
+            .from('kv_pricebooks')
+            .upsert([pricebookData], {
+              onConflict: 'id',
+              ignoreDuplicates: false
+            });
+            
+          if (pricebookError) {
+            console.error(`❌ Error upserting pricebook ${pricebook.name}:`, pricebookError);
+            errorCount++;
+            continue;
+          }
+          
+          successCount++;
+        }
+      } catch (error) {
+        console.error(`❌ Error processing pricebook ${pricebook.name}:`, error.message);
+        errorCount++;
+      }
+    }
+    
+    console.log(`✅ Completed pricebook sync: ${successCount} pricebooks, ${productPricebookCount} product prices`);
+    
+    return {
+      success: true,
+      message: `Pricebooks synced successfully: ${successCount} pricebooks, ${productPricebookCount} product prices`,
+      count: {
+        total: pricebooks.length,
+        success: successCount,
+        error: errorCount,
+        productPrices: productPricebookCount
+      }
+    };
+  } catch (error) {
+    console.error("❌ Error in pricebook sync:", error);
+    throw error;
+  }
 }
 
 module.exports = {
@@ -1325,5 +1604,6 @@ module.exports = {
     updatePurchaseOrderStatus,
     updateKiotVietProduct,
     updateProduct,
-    updateProductWithStatus
+    updateProductWithStatus,
+    clonePricebooks
 }; 

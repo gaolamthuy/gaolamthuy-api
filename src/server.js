@@ -9,15 +9,10 @@ const kiotvietService = require('./services/kiotvietService');
 const { getTodayComponents, formatYMD } = require('./utils/dateUtils');
 const discordService = require('./services/discordService');
 
-// Schedule manifest updates - every hour
-const scheduleManifestUpdates = () => {
-  console.log('📋 Skipping manifest updates - feature disabled');
-  // All manifest update code removed
-};
-
-// Schedule KiotViet data sync jobs - daily at midnight
+// Schedule KiotViet data sync jobs
 const scheduleKiotVietSyncJobs = () => {
-  console.log('🕒 Scheduling KiotViet token refresh at 1AM');
+  // Token refresh - Every day at 1 AM
+  console.log('🕒 Scheduling KiotViet token refresh at 1 AM');
   cron.schedule('0 1 * * *', async () => {
     console.log('🔄 Refreshing KiotViet access token...');
     try {
@@ -30,38 +25,35 @@ const scheduleKiotVietSyncJobs = () => {
     timezone: process.env.TIMEZONE || 'UTC'
   });
 
-  console.log('🕒 Scheduling daily KiotViet data sync jobs at 2AM');
+  // All other services sync - Every day at 2 AM
+  console.log('🕒 Scheduling all KiotViet services sync at 2 AM');
   cron.schedule('0 2 * * *', async () => {
-    console.log('🌅 Running daily KiotViet data sync jobs');
+    console.log('🔄 Running KiotViet services sync');
     try {
-      await kiotvietService.cloneCustomers();
+      // Products and Pricebooks
+      console.log('📦 Syncing products and pricebooks...');
       await kiotvietService.cloneProducts();
-      console.log('✅ Daily KiotViet data sync jobs completed successfully');
+      await kiotvietService.clonePricebooks();
+      
+      // Customers
+      console.log('👥 Syncing customers...');
+      await kiotvietService.cloneCustomers();
+      
+      // Today's invoices
+      console.log('🧾 Syncing today\'s invoices...');
+      const { year, month, day } = getTodayComponents();
+      await kiotvietService.cloneInvoicesByDay(year, month, day);
+      
+      // Purchase orders
+      console.log('📝 Syncing recent purchase orders...');
+      await kiotvietService.cloneRecentPurchaseOrders();
+      
+      console.log('✅ All KiotViet services sync completed successfully');
     } catch (err) {
-      console.error('❌ Error during daily KiotViet data sync jobs', err);
+      console.error('❌ Error during KiotViet services sync:', err);
     }
   }, {
     timezone: process.env.TIMEZONE || 'UTC'
-  });
-};
-
-
-// Schedule KiotViet invoice - every 30 minutes
-const scheduleKiotVietInvoice = () => {
-  console.log('🕒 Scheduling KiotViet invoice updates (every 30 minutes)');
-  cron.schedule('0,30 * * * *', async () => {
-    console.log('🌅 Running KiotViet invoice update');
-    try {
-      // Clone today's invoices
-      const { year, month, day } = getTodayComponents();
-      const formattedDate = formatYMD({ year, month, day });
-      
-      console.log(`🔄 Cloning invoices for today: ${formattedDate}`);
-      await kiotvietService.cloneInvoicesByDay(year, month, day);
-      console.log(`✅ KiotViet invoice clone completed successfully for ${formattedDate}`);
-    } catch (err) {
-      console.error('❌ Error during KiotViet invoice update', err);
-    }
   });
 };
 
@@ -79,9 +71,7 @@ const startDiscordBot = () => {
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  scheduleManifestUpdates();
   scheduleKiotVietSyncJobs();
-  scheduleKiotVietInvoice();
   startDiscordBot();
 }); 
 

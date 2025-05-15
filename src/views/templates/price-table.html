@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bảng Giá - {{customerName}}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            font-size: 14px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .header h1 {
+            margin: 0;
+            padding: 10px 0;
+            font-size: 24px;
+        }
+        .header p {
+            margin: 5px 0;
+            color: #666;
+        }
+        .customer-info {
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+        }
+        .customer-info h2 {
+            margin: 0 0 10px 0;
+            font-size: 18px;
+            color: #333;
+        }
+        .customer-info p {
+            margin: 5px 0;
+            color: #666;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f5f5f5;
+            font-weight: bold;
+            color: #333;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .footer {
+            text-align: center;
+            font-size: 0.9em;
+            color: #666;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+            margin-top: 30px;
+        }
+        .price {
+            text-align: right;
+            font-weight: bold;
+            color: #e53935;
+        }
+        .index {
+            text-align: center;
+            width: 50px;
+        }
+        @media print {
+            body {
+                padding: 0;
+            }
+            @page {
+                margin: 1cm;
+                size: A4;
+            }
+            .customer-info {
+                border: none;
+                background: none;
+            }
+            tr:hover {
+                background-color: inherit;
+            }
+            .price {
+                color: #000;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>BẢNG GIÁ SẢN PHẨM</h1>
+        <p>Ngày: {{currentDate}}</p>
+    </div>
+
+    <div class="customer-info">
+        <h2>{{customerName}}</h2>
+        <p>Mã khách hàng: {{customerCode}}</p>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th class="index">STT</th>
+                <th>Tên sản phẩm</th>
+                <th style="width: 150px;">Giá (VNĐ)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{#each products}}
+            <tr>
+                <td class="index">{{inc @index}}</td>
+                <td>{{fullName}}</td>
+                <td class="price">{{formatPrice price}}</td>
+            </tr>
+            {{/each}}
+        </tbody>
+    </table>
+
+    <div class="footer">
+        <p>Bảng giá có hiệu lực từ ngày {{currentDate}}</p>
+        <p>Mọi thắc mắc xin vui lòng liên hệ bộ phận kinh doanh</p>
+        <p>Hotline: 0123.456.789</p>
+    </div>
+</body>
+</html> 

@@ -4,8 +4,12 @@
  */
 
 const kiotvietService = require('../services/kiotvietService');
-const { successResponse, errorResponse, validationError } = require('../utils/responseHandler');
+const { successResponse, errorResponse, validationError, success, serverError, notFound, badRequest } = require('../utils/responseHandler');
 const { getTodayComponents, formatYMD, validateDateFormat } = require('../utils/dateUtils');
+const express = require('express');
+const fs = require('fs').promises; // Added for file system operations
+const path = require('path'); // Added for path manipulation
+const axios = require('axios'); // Added for making HTTP requests
 
 /**
  * Clone products from KiotViet API
@@ -179,59 +183,6 @@ exports.syncPurchaseOrdersByDateRange = async (req, res) => {
 };
 
 /**
- * Sync data from KiotViet based on the specified type
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- */
-exports.syncKiotVietData = async (req, res) => {
-  try {
-    const { type } = req.body;
-    
-    if (!type) {
-      return validationError(res, 'Missing required parameter: type in request body');
-    }
-    
-    console.log(`🔄 Starting KiotViet data sync for type: ${type}...`);
-    
-    let result;
-    
-    switch (type.toLowerCase()) {
-      case 'products':
-        result = await kiotvietService.cloneProducts();
-        break;
-      case 'customers':
-        result = await kiotvietService.cloneCustomers();
-        break;
-      case 'invoices':
-        // Get today's date for syncing today's invoices
-        const today = new Date();
-        const year = today.getFullYear();
-        const month = today.getMonth() + 1;
-        const day = today.getDate();
-        result = await kiotvietService.cloneInvoicesByDay(year, month, day);
-        break;
-      case 'purchase-orders':
-        result = await kiotvietService.cloneRecentPurchaseOrders();
-        break;
-      default:
-        return validationError(res, `Unknown data type: ${type}. Supported types: products, customers, invoices, purchase-orders`);
-    }
-    
-    if (result.success) {
-      return successResponse(res, {
-        message: result.message,
-        data: result.count || result.stats
-      });
-    } else {
-      return errorResponse(res, result.message, null, 500);
-    }
-  } catch (error) {
-    console.error('❌ Error in syncKiotVietData controller:', error);
-    return errorResponse(res, `Failed to sync data: ${error.message}`, error);
-  }
-};
-
-/**
  * Update a product in KiotViet and related data
  * @param {Object} req - Express request object
  * @param {Object} req.body - Request body containing update data
@@ -298,6 +249,108 @@ exports.updateProduct = async (req, res) => {
     }
 };
 
+// New controller function for printing price board
+exports.getPrintPriceBoard = async (req, res) => {
+  try {
+    const { product_id, kiotviet_product_id } = req.query;
+
+    if (!product_id && !kiotviet_product_id) {
+      return badRequest(res, 'Missing product_id or kiotviet_product_id query parameter.');
+    }
+
+    const SUPABASE_URL = process.env.SUPABASE_URL;
+    const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+      console.error('Supabase URL or Service Key is not set in environment variables.');
+      return serverError(res, 'Server configuration error: Supabase credentials missing.');
+    }
+
+    let filterField = '';
+    let filterValue = '';
+
+    if (product_id) {
+      filterField = 'id';
+      filterValue = parseInt(product_id);
+      if (isNaN(filterValue)) {
+        return badRequest(res, 'Invalid product_id format.');
+      }
+    } else if (kiotviet_product_id) {
+      filterField = 'kiotviet_id';
+      filterValue = parseInt(kiotviet_product_id);
+      if (isNaN(filterValue)) {
+        return badRequest(res, 'Invalid kiotviet_product_id format.');
+      }
+    }
+
+    const selectQuery = 'select=full_name,description,base_price';
+    const productApiUrl = `${SUPABASE_URL}/rest/v1/kv_products?${selectQuery}&${filterField}=eq.${filterValue}`;
+
+    console.log('🔍 Fetching product data from Supabase:', productApiUrl);
+
+    let productData;
+    try {
+      const response = await axios.get(productApiUrl, {
+        headers: {
+          'apikey': SUPABASE_SERVICE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`
+        }
+      });
+
+      if (response.data && response.data.length > 0) {
+        productData = response.data[0];
+        console.log('✅ Product data found:', productData);
+      } else {
+        console.log('❌ No product found for', filterField, '=', filterValue);
+        return notFound(res, 'Product not found in Supabase.');
+      }
+    } catch (apiError) {
+      console.error(`Error fetching product from Supabase (filter: ${filterField}=${filterValue}):`, apiError.response ? apiError.response.data : apiError.message);
+      return serverError(res, 'Failed to fetch product data from Supabase.', apiError.message);
+    }
+
+    const templatePath = path.join(__dirname, '../views/templates/price-board.html');
+    let htmlContent = await fs.readFile(templatePath, 'utf-8');
+
+    // Use description for title, fallback to full_name if description is empty
+    const productName = productData.description || productData.full_name || 'N/A';
+    const productPrice = productData.base_price !== null && productData.base_price !== undefined 
+      ? Math.round(parseFloat(productData.base_price)).toString()  // Round to whole number
+      : '0';
+
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const year = now.getFullYear();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const currentDate = `${day}/${month}/${year} - ${hours}:${minutes}`;
+
+    // Create a regex that matches the exact placeholder text
+    const titleRegex = /Gạo tròn hè 2024/g;
+    const priceRegex = /16500/g;
+    const dateRegex = /15\/05\/2025 - 12:35/g;
+
+    // Replace placeholders with actual data
+    htmlContent = htmlContent.replace(titleRegex, productName);
+    htmlContent = htmlContent.replace(priceRegex, productPrice);
+    htmlContent = htmlContent.replace(dateRegex, currentDate);
+
+    console.log('📄 Generated price board HTML with:', { productName, productPrice, currentDate });
+
+    res.setHeader('Content-Type', 'text/html');
+    res.send(htmlContent);
+
+  } catch (error) {
+    console.error('Error generating price board:', error);
+    if (error.isAxiosError) {
+      serverError(res, 'API error while generating price board.', error.response?.data || error.message);
+    } else {
+      serverError(res, 'Error generating price board.', error.message);
+    }
+  }
+};
+
 module.exports = {
     cloneProducts: exports.cloneProducts,
     cloneCustomers: exports.cloneCustomers,
@@ -306,6 +359,6 @@ module.exports = {
     cloneInvoicesToday: exports.cloneInvoicesToday,
     syncRecentPurchaseOrders: exports.syncRecentPurchaseOrders,
     syncPurchaseOrdersByDateRange: exports.syncPurchaseOrdersByDateRange,
-    syncKiotVietData: exports.syncKiotVietData,
-    updateProduct: exports.updateProduct
+    updateProduct: exports.updateProduct,
+    getPrintPriceBoard: exports.getPrintPriceBoard
 }; 

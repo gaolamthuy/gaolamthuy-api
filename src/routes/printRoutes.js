@@ -10,6 +10,8 @@ const printService = require('../services/printService');
 const db = require('../utils/database');
 const { basicAuth } = require('../middlewares/auth');
 const { htmlResponse, errorResponse, successResponse, validationError, notFoundError } = require('../utils/responseHandler');
+const kiotvietController = require('../controllers/kiotvietController');
+const printController = require('../controllers/printController');
 
 // Create Supabase client
 const supabase = createClient(
@@ -166,124 +168,13 @@ router.get('/label-product', async (req, res) => {
 });
 
 /**
- * GET /print/debug/db
- * Test database connection
+ * GET /print/price-board
+ * Print a price board for a product
+ * Query params: product_id or kiotviet_product_id
  */
-router.get('/debug/db', async (req, res) => {
-  try {
-    console.log('🔍 Testing database connection...');
-    
-    // Test querying products
-    const { data: products, error: productsError } = await supabase
-      .from('kv_products')
-      .select('id, name, code')
-      .limit(3);
-    
-    // Test querying a specific invoice
-    const { data: invoice, error: invoiceError } = await supabase
-      .from('kv_invoices')
-      .select('id, code')
-      .eq('code', 'HD057559')
-      .single();
-    
-    // Return test results
-    return successResponse(res, {
-      products: {
-        success: !productsError,
-        count: products?.length || 0,
-        sample: products?.[0] || null,
-        error: productsError
-      },
-      invoice: {
-        success: !invoiceError,
-        data: invoice || null,
-        error: invoiceError
-      }
-    });
-  } catch (error) {
-    console.error('Error in database debug endpoint:', error);
-    return errorResponse(res, 'Error testing database connection', error);
-  }
-});
+router.get('/price-board', kiotvietController.getPrintPriceBoard);
 
-/**
- * GET /print/debug/templates
- * Test template loading
- */
-router.get('/debug/templates', async (req, res) => {
-  try {
-    console.log('🔍 Testing template loading...');
-    
-    // Test invoice template
-    const invoicePath = path.join(__dirname, '../../src/views/templates/invoice.html');
-    let invoiceContent, invoiceError;
-    try {
-      invoiceContent = await fs.readFile(invoicePath, 'utf8');
-    } catch (err) {
-      invoiceError = err.message;
-    }
-    
-    // Test label template
-    const labelPath = path.join(__dirname, '../../src/views/templates/label.html');
-    let labelContent, labelError;
-    try {
-      labelContent = await fs.readFile(labelPath, 'utf8');
-    } catch (err) {
-      labelError = err.message;
-    }
-    
-    // Return test results
-    return successResponse(res, {
-      invoice: {
-        path: invoicePath,
-        success: !!invoiceContent,
-        contentLength: invoiceContent?.length || 0,
-        sample: invoiceContent?.substring(0, 50) || null,
-        error: invoiceError
-      },
-      label: {
-        path: labelPath,
-        success: !!labelContent,
-        contentLength: labelContent?.length || 0,
-        sample: labelContent?.substring(0, 50) || null,
-        error: labelError
-      }
-    });
-  } catch (error) {
-    console.error('Error in template debug endpoint:', error);
-    return errorResponse(res, 'Error testing template loading', error);
-  }
-});
-
-/**
- * GET /print/static-invoice
- * Return a static invoice HTML for testing
- */
-router.get('/static-invoice', async (req, res) => {
-  try {
-    const staticHtml = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Static Invoice Test</title>
-      <style>
-        body { font-family: Arial; }
-      </style>
-    </head>
-    <body>
-      <h1>Static Invoice</h1>
-      <p>This is a static test invoice to verify routes are working.</p>
-      <p>Current time: ${new Date().toISOString()}</p>
-    </body>
-    </html>
-    `;
-    
-    res.setHeader('Content-Type', 'text/html');
-    res.send(staticHtml);
-  } catch (error) {
-    console.error('Error serving static invoice:', error);
-    return errorResponse(res, 'Error serving static invoice', error);
-  }
-});
+// Customer price table route
+router.get('/price-table/:kiotviet_customer_id', printController.getPrintPriceTable);
 
 module.exports = router; 
