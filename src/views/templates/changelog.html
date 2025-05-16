@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Changelog - {{date}}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            margin: 0;
+            padding: 10px 0;
+            font-size: 24px;
+            color: #333;
+        }
+        .header p {
+            margin: 5px 0;
+            color: #666;
+        }
+        .changelog-section {
+            margin-bottom: 30px;
+        }
+        .category-header {
+            margin: 20px 0 10px;
+            padding: 5px 0;
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+            border-bottom: 2px solid #333;
+        }
+        .change-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .change-item:last-child {
+            border-bottom: none;
+        }
+        .price-change {
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .price-increase {
+            color: #d32f2f;
+        }
+        .price-decrease {
+            color: #1976d2;
+        }
+        .description-change {
+            color: #666;
+            display: inline-block;
+        }
+        .change-arrow {
+            color: #666;
+            margin: 0 5px;
+        }
+        @media print {
+            body {
+                padding: 0;
+                font-size: 11pt;
+            }
+            @page {
+                margin: 1.5cm;
+                size: A4 portrait;
+            }
+            .header h1 {
+                font-size: 20pt;
+            }
+            .category-header {
+                font-size: 14pt;
+                break-after: avoid;
+            }
+            .price-increase, .price-decrease {
+                color: #000;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>THAY ĐỔI SẢN PHẨM</h1>
+        <p>Ngày: {{date}}</p>
+    </div>
+
+    {{#each categories}}
+    <div class="changelog-section">
+        <h2 class="category-header">{{name}}</h2>
+        {{#each changes}}
+        <div class="change-item">
+            • {{fullName}}
+            {{#if costChange}}
+            <span class="price-change {{#if costIncrease}}price-increase{{else}}price-decrease{{/if}}">
+                | {{#if costIncrease}}tăng{{else}}giảm{{/if}} {{formatPrice costDiff}}
+            </span>
+            {{/if}}
+            {{#if descriptionChange}}
+            <span class="description-change">
+                | {{#if costChange}}- {{/if}}{{oldDescription}} <span class="change-arrow">→</span> {{newDescription}}
+            </span>
+            {{/if}}
+        </div>
+        {{/each}}
+    </div>
+    {{/each}}
+</body>
+</html> 

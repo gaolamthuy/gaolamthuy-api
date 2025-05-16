@@ -8,7 +8,7 @@ const router = express.Router();
 const { basicAuth } = require('../middlewares/auth');
 const { isValidYear, isValidMonth, isValidDay } = require('../utils/dateUtils');
 const { validationError } = require('../utils/responseHandler');
-const { cloneProducts, clonePricebooks } = require('../services/kiotvietService');
+const { cloneProducts, clonePricebooks, updateProductWithStatus } = require('../services/kiotvietService');
 
 // Import controllers
 const kiotvietController = require('../controllers/kiotvietController');
@@ -28,6 +28,65 @@ router.post('/clone/products', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error cloning products',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @route POST /kiotviet/update/product
+ * @description Update product status and details in KiotViet
+ */
+router.post('/product/update', basicAuth, async (req, res) => {
+  try {
+    const { purchase_order_detail_id, status, update_if_done } = req.body;
+
+    if (!purchase_order_detail_id || !status) {
+      return res.status(400).json({
+        success: false,
+        message: 'purchase_order_detail_id and status are required'
+      });
+    }
+
+    if (status !== 'done' && status !== 'skipped') {
+      return res.status(400).json({
+        success: false,
+        message: 'status must be either "done" or "skipped"'
+      });
+    }
+
+    // If status is done, validate required update data
+    if (status === 'done') {
+      if (!update_if_done || !update_if_done.kiotviet_product_id) {
+        return res.status(400).json({
+          success: false,
+          message: 'update_if_done with kiotviet_product_id is required when status is "done"'
+        });
+      }
+    }
+
+    // Update product using the service function
+    await updateProductWithStatus(
+      purchase_order_detail_id,
+      status,
+      status === 'done' ? {
+        kiotviet_product_id: update_if_done.kiotviet_product_id,
+        cost: update_if_done.cost,
+        baseprice: update_if_done.baseprice,
+        glt_note: update_if_done.glt_note && update_if_done.glt_note.trim() !== '' ? update_if_done.glt_note : null // Remove empty glt_note
+      } : null
+    );
+
+    res.json({
+      success: true,
+      message: `Product ${status === 'done' ? 'updated' : 'skipped'} successfully`
+    });
+
+  } catch (error) {
+    console.error('Error updating product:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating product',
       error: error.message
     });
   }

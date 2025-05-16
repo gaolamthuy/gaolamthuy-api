@@ -41,6 +41,23 @@ Shows customer-specific pricing based on their group and applicable pricebooks.
 - **Template**: `views/templates/price-table.html`
 - **Auth**: Basic Authentication required
 
+### Changelog
+```
+GET /print/changelog
+```
+Shows product changes for a specific date.
+- **Query Parameters**:
+  - `date` (required): Format dd/mm/yyyy
+  - `field_change` (required): Array of fields to show changes for
+    - Valid values: `base_price`, `cost`, `order_template`, `description`
+  - `output_type` (optional): `html` (default) or `plain`
+- **Response**: HTML page or plain text showing changes grouped by category
+- **Template**: `views/templates/changelog.html`
+- **Format**:
+  - For price changes: `Product Name New_Price (tăng/giảm Price_Diff từ Old_Price)`
+  - For text changes: `Product Name (Old_Value → New_Value)`
+- **Auth**: None required
+
 ### Print Jobs
 
 #### List Pending Jobs
@@ -84,6 +101,7 @@ GET /print/label-product?code=<product_code>&quantity=<qty>
 - `kv_pricebooks`: Customer group pricing
 - `kv_customers`: Customer information
 - `glt_print_jobs`: Print job tracking
+- `glt_product_changelog`: Product change history
 
 ## Environment Variables Required
 - `SUPABASE_URL`

@@ -1404,14 +1404,14 @@ async function updateProductWithStatus(purchaseOrderDetailId, status, updateData
 
         // If status is 'done', proceed with product update
         if (status === 'done' && updateData) {
-            const { kiotviet_product_id, cost, basecost, glt_note } = updateData;
+            const { kiotviet_product_id, cost, baseprice, glt_note } = updateData;
 
             // Get current product details
             const currentProduct = await getProductDetails(kiotviet_product_id);
 
             // Prepare update data for KiotViet
             const kvUpdateData = {
-                basePrice: basecost,
+                basePrice: baseprice,
                 description: glt_note || currentProduct.description,
                 inventories: [
                     {

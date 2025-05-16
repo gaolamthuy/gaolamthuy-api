@@ -180,4 +180,7 @@ router.get('/price-table/retail', printController.getPrintRetailPriceTable);
 // Customer price table route
 router.get('/price-table/:kiotviet_customer_id', printController.getPrintPriceTable);
 
+// Changelog route (no auth)
+router.get('/changelog', printController.getChangelog);
+
 module.exports = router; 

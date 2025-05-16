@@ -318,4 +318,168 @@ exports.getPrintRetailPriceTable = async (req, res) => {
     console.error('Error generating retail price table:', error);
     res.status(500).send('Error generating retail price table');
   }
+};
+
+/**
+ * Get changelog for a specific date
+ */
+exports.getChangelog = async (req, res) => {
+  try {
+    const { output_type = 'html', date } = req.query;
+
+    // Validate date format (dd/mm/yyyy)
+    if (!date || !/^\d{2}\/\d{2}\/\d{4}$/.test(date)) {
+      return res.status(400).send('Invalid date format. Use dd/mm/yyyy');
+    }
+
+    // Parse date components
+    const [day, month, year] = date.split('/');
+    const startDate = new Date(year, month - 1, day);
+    const endDate = new Date(year, month - 1, parseInt(day) + 1);
+
+    // Get changelog entries for the specified date
+    const { data: changes, error: changesError } = await supabase
+      .from('glt_product_changelog')
+      .select(`
+        id,
+        kiotviet_id,
+        field,
+        old_value,
+        new_value,
+        created_at,
+        kv_products (
+          full_name,
+          category_id,
+          category_name
+        )
+      `)
+      .gte('created_at', startDate.toISOString())
+      .lt('created_at', endDate.toISOString())
+      .order('created_at');
+
+    if (changesError) {
+      console.error('Error fetching changelog:', changesError);
+      return res.status(500).send('Error fetching changelog data');
+    }
+
+    // Group changes by product and category
+    const productChanges = new Map(); // Map<kiotviet_id, {categoryId, categoryName, fullName, changes}>
+    
+    changes.forEach(change => {
+      if (!change.kv_products) return; // Skip if product not found
+
+      const productKey = change.kiotviet_id;
+      if (!productChanges.has(productKey)) {
+        productChanges.set(productKey, {
+          categoryId: change.kv_products.category_id,
+          categoryName: change.kv_products.category_name,
+          fullName: change.kv_products.full_name,
+          cost: {},
+          description: {}
+        });
+      }
+
+      const product = productChanges.get(productKey);
+      
+      // Store changes by field
+      if (change.field === 'cost') {
+        product.cost = {
+          oldValue: parseFloat(change.old_value) || 0,
+          newValue: parseFloat(change.new_value) || 0
+        };
+      } else if (change.field === 'description') {
+        product.description = {
+          oldValue: change.old_value || '',
+          newValue: change.new_value || ''
+        };
+      }
+    });
+
+    // Group by category and format changes
+    const categoryChanges = new Map();
+    
+    for (const product of productChanges.values()) {
+      if (!categoryChanges.has(product.categoryId)) {
+        categoryChanges.set(product.categoryId, {
+          name: product.categoryName,
+          changes: []
+        });
+      }
+
+      const changeItem = {
+        fullName: product.fullName
+      };
+
+      // Add cost change if exists
+      if (product.cost.newValue !== undefined) {
+        const diff = product.cost.newValue - product.cost.oldValue;
+        changeItem.costChange = true;
+        changeItem.costIncrease = diff > 0;
+        changeItem.costDiff = Math.abs(diff);
+      }
+
+      // Add description change if exists
+      if (product.description.newValue !== undefined && 
+          product.description.newValue !== product.description.oldValue) {
+        changeItem.descriptionChange = true;
+        changeItem.oldDescription = product.description.oldValue;
+        changeItem.newDescription = product.description.newValue;
+      }
+
+      // Only add if there are actual changes
+      if (changeItem.costChange || changeItem.descriptionChange) {
+        categoryChanges.get(product.categoryId).changes.push(changeItem);
+      }
+    }
+
+    // Convert to array and sort by category name
+    const sortedCategories = Array.from(categoryChanges.values())
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    if (output_type === 'plain') {
+      // Generate plain text output
+      let output = `THAY ĐỔI SẢN PHẨM\nNgày: ${date}\n\n`;
+
+      sortedCategories.forEach(category => {
+        output += `${category.name}\n`;
+        category.changes.forEach(change => {
+          let line = change.fullName;
+          
+          if (change.costChange) {
+            const direction = change.costIncrease ? 'tăng' : 'giảm';
+            line += ` ${direction} ${formatCurrency(change.costDiff)}`;
+          }
+          
+          if (change.descriptionChange) {
+            if (change.costChange) line += ' - ';
+            line += `${change.oldDescription} → ${change.newDescription}`;
+          }
+          
+          output += `- ${line}\n`;
+        });
+        output += '\n';
+      });
+
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      return res.send(output);
+    }
+
+    // Read and compile HTML template
+    const templatePath = path.join(__dirname, '../views/templates/changelog.html');
+    const templateContent = await fs.readFile(templatePath, 'utf-8');
+    const template = Handlebars.compile(templateContent);
+
+    // Render HTML
+    const html = template({
+      date,
+      categories: sortedCategories
+    });
+
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+
+  } catch (error) {
+    console.error('Error generating changelog:', error);
+    res.status(500).send('Error generating changelog');
+  }
 }; 
