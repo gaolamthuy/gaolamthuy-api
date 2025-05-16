@@ -10,6 +10,7 @@ const express = require('express');
 const fs = require('fs').promises; // Added for file system operations
 const path = require('path'); // Added for path manipulation
 const axios = require('axios'); // Added for making HTTP requests
+const Handlebars = require('handlebars'); // <--- Add Handlebars
 
 /**
  * Clone products from KiotViet API
@@ -258,6 +259,7 @@ exports.getPrintPriceBoard = async (req, res) => {
       return badRequest(res, 'Missing product_id or kiotviet_product_id query parameter.');
     }
 
+    // Ensure SUPABASE_URL and SUPABASE_SERVICE_KEY are loaded (consider moving client init outside if used often)
     const SUPABASE_URL = process.env.SUPABASE_URL;
     const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
@@ -265,6 +267,11 @@ exports.getPrintPriceBoard = async (req, res) => {
       console.error('Supabase URL or Service Key is not set in environment variables.');
       return serverError(res, 'Server configuration error: Supabase credentials missing.');
     }
+    
+    // Create Supabase client locally for this function, or ensure it's passed/available
+    // For consistency with printController, it might be better to use a shared Supabase client
+    // const { createClient } = require('@supabase/supabase-js'); // If creating new client
+    // const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
     let filterField = '';
     let filterValue = '';
@@ -284,9 +291,10 @@ exports.getPrintPriceBoard = async (req, res) => {
     }
 
     const selectQuery = 'select=full_name,description,base_price';
+    // Using direct axios call as before, but could use Supabase client as well
     const productApiUrl = `${SUPABASE_URL}/rest/v1/kv_products?${selectQuery}&${filterField}=eq.${filterValue}`;
 
-    console.log('🔍 Fetching product data from Supabase:', productApiUrl);
+    console.log('🔍 Fetching product data from Supabase for price board:', productApiUrl);
 
     let productData;
     try {
@@ -299,50 +307,50 @@ exports.getPrintPriceBoard = async (req, res) => {
 
       if (response.data && response.data.length > 0) {
         productData = response.data[0];
-        console.log('✅ Product data found:', productData);
+        console.log('✅ Product data found for price board:', productData);
       } else {
-        console.log('❌ No product found for', filterField, '=', filterValue);
-        return notFound(res, 'Product not found in Supabase.');
+        console.log('❌ No product found for price board (filter:', filterField, '=', filterValue, ')');
+        return notFound(res, 'Product not found in Supabase for price board.');
       }
     } catch (apiError) {
-      console.error(`Error fetching product from Supabase (filter: ${filterField}=${filterValue}):`, apiError.response ? apiError.response.data : apiError.message);
-      return serverError(res, 'Failed to fetch product data from Supabase.', apiError.message);
+      console.error(`Error fetching product for price board from Supabase (filter: ${filterField}=${filterValue}):`, apiError.response ? apiError.response.data : apiError.message);
+      return serverError(res, 'Failed to fetch product data from Supabase for price board.', apiError.message);
     }
 
     const templatePath = path.join(__dirname, '../views/templates/price-board.html');
-    let htmlContent = await fs.readFile(templatePath, 'utf-8');
-
+    
     // Use description for title, fallback to full_name if description is empty
-    const productName = productData.description || productData.full_name || 'N/A';
-    const productPrice = productData.base_price !== null && productData.base_price !== undefined 
-      ? Math.round(parseFloat(productData.base_price)).toString()  // Round to whole number
-      : '0';
+    const productTitle = productData.description || productData.full_name || 'N/A';
+    // Pass raw base_price to template, let Handlebars helper format it
+    const price = productData.base_price !== null && productData.base_price !== undefined 
+      ? parseFloat(productData.base_price)
+      : 0;
 
     const now = new Date();
     const day = String(now.getDate()).padStart(2, '0');
-    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0'); // Month is 0-indexed
     const year = now.getFullYear();
     const hours = String(now.getHours()).padStart(2, '0');
     const minutes = String(now.getMinutes()).padStart(2, '0');
-    const currentDate = `${day}/${month}/${year} - ${hours}:${minutes}`;
+    const currentDateString = `${day}/${month}/${year} - ${hours}:${minutes}`;
 
-    // Create a regex that matches the exact placeholder text
-    const titleRegex = /Gạo tròn hè 2024/g;
-    const priceRegex = /16500/g;
-    const dateRegex = /15\/05\/2025 - 12:35/g;
+    // Read, compile, and render Handlebars template
+    const templateFileContent = await fs.readFile(templatePath, 'utf-8');
+    const compiledTemplate = Handlebars.compile(templateFileContent);
+    const htmlContent = compiledTemplate({
+      productTitle,
+      price, // Pass raw price
+      currentDateString
+    });
 
-    // Replace placeholders with actual data
-    htmlContent = htmlContent.replace(titleRegex, productName);
-    htmlContent = htmlContent.replace(priceRegex, productPrice);
-    htmlContent = htmlContent.replace(dateRegex, currentDate);
-
-    console.log('📄 Generated price board HTML with:', { productName, productPrice, currentDate });
+    console.log('📄 Generated price board HTML with Handlebars:', { productTitle, price, currentDateString });
 
     res.setHeader('Content-Type', 'text/html');
     res.send(htmlContent);
 
   } catch (error) {
     console.error('Error generating price board:', error);
+    // Simplified error handling, adjust as needed
     if (error.isAxiosError) {
       serverError(res, 'API error while generating price board.', error.response?.data || error.message);
     } else {

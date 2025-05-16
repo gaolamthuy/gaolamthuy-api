@@ -174,6 +174,9 @@ router.get('/label-product', async (req, res) => {
  */
 router.get('/price-board', kiotvietController.getPrintPriceBoard);
 
+// Retail price table route (no auth) - must come BEFORE the :kiotviet_customer_id route
+router.get('/price-table/retail', printController.getPrintRetailPriceTable);
+
 // Customer price table route
 router.get('/price-table/:kiotviet_customer_id', printController.getPrintPriceTable);
 

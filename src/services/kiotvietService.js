@@ -311,12 +311,21 @@ async function cloneProducts() {
           if (product.priceBooks && Array.isArray(product.priceBooks)) {
             for (const pricebook of product.priceBooks) {
               if (pricebook.isActive) {
+                // Get customer group name from the pricebook
+                const { data: pricebookData } = await supabase
+                  .from('kv_pricebooks')
+                  .select('customer_group_name')
+                  .eq('id', pricebook.priceBookId)
+                  .single();
+
+                const customerGroupName = pricebookData?.customer_group_name || 'default';
+
                 uniquePricebooks.add(JSON.stringify({
                   id: pricebook.priceBookId,
                   name: pricebook.priceBookName,
                   is_active: true,
                   is_global: true,
-                  customer_group_name: '',
+                  customer_group_name: customerGroupName,
                   created_at: new Date(),
                   updated_at: new Date(),
                   start_date: pricebook.startDate ? new Date(pricebook.startDate) : null,
@@ -370,20 +379,29 @@ async function cloneProducts() {
                 continue;
               }
 
+              // Get customer group name from pricebook
+              const { data: pricebookData } = await supabase
+                .from('kv_pricebooks')
+                .select('customer_group_name')
+                .eq('id', pricebook.priceBookId)
+                .single();
+
+              const customerGroupName = pricebookData?.customer_group_name || 'default';
+
               // First ensure the pricebook exists
-              const pricebookData = {
+              const pricebookUpsertData = {
                 id: pricebook.priceBookId,
                 name: pricebook.priceBookName,
                 is_active: true,
                 is_global: true,
-                customer_group_name: '',
+                customer_group_name: customerGroupName,
                 created_at: new Date(),
                 updated_at: new Date()
               };
 
               const { error: pricebookError } = await supabase
                 .from('kv_pricebooks')
-                .upsert([pricebookData], {
+                .upsert([pricebookUpsertData], {
                   onConflict: 'id',
                   ignoreDuplicates: false
                 });
@@ -397,7 +415,7 @@ async function cloneProducts() {
               const productPricebookData = {
                 pricebook_id: pricebook.priceBookId,
                 pricebook_name: pricebook.priceBookName,
-                customer_group_name: '', // Using empty string as default group
+                customer_group_name: customerGroupName,
                 product_id: existingProduct.id,
                 product_kiotviet_id: product.id,
                 price: pricebook.price,
@@ -1446,8 +1464,8 @@ async function clonePricebooks() {
     for (const pricebook of pricebooks) {
       try {
         // For each customer group in the pricebook
-        if (pricebook.customerGroups && Array.isArray(pricebook.customerGroups)) {
-          for (const group of pricebook.customerGroups) {
+        if (pricebook.priceBookCustomerGroups && Array.isArray(pricebook.priceBookCustomerGroups)) {
+          for (const group of pricebook.priceBookCustomerGroups) {
             // Map pricebook data for each customer group
             const pricebookData = {
               id: pricebook.id,
@@ -1563,7 +1581,7 @@ async function clonePricebooks() {
           
           successCount++;
         }
-      } catch (error) {
+    } catch (error) {
         console.error(`❌ Error processing pricebook ${pricebook.name}:`, error.message);
         errorCount++;
       }
@@ -1583,8 +1601,8 @@ async function clonePricebooks() {
     };
   } catch (error) {
     console.error("❌ Error in pricebook sync:", error);
-    throw error;
-  }
+        throw error;
+    }
 }
 
 module.exports = {

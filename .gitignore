@@ -28,7 +28,6 @@ uploads/*
 
 # Local project notes
 /notes
-/docs
 TODO.md
 
 # Temporary files
@@ -41,4 +40,4 @@ tmp/
 
 # Deployment-specific
 .github/workflows/build.yml
-cursorai-instruction
+/cursorai-instruction

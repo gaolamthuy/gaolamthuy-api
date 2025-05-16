@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bảng Giá - {{customerName}}</title>
+    <title>{{#if isRetail}}{{pageTitle}}{{else}}Bảng Giá - {{customerName}}{{/if}}</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -24,116 +24,122 @@
             margin: 5px 0;
             color: #666;
         }
-        .customer-info {
+        .info-section {
             margin-bottom: 20px;
             border: 1px solid #ddd;
             padding: 15px;
             border-radius: 4px;
             background-color: #f9f9f9;
         }
-        .customer-info h2 {
+        .info-section h2 {
             margin: 0 0 10px 0;
             font-size: 18px;
             color: #333;
         }
-        .customer-info p {
+        .info-section p {
             margin: 5px 0;
             color: #666;
         }
-        table {
+        .product-list {
+            margin: 24px 0 40px 0;
             width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 20px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 12px 8px;
+        .category-section {
+            margin-bottom: 6px;
+            padding-bottom: 0;
+            border-bottom: 1.5px solid #000;
+        }
+        .category-header {
+            margin: 0 0 4px 0;
+            padding: 6px 0 2px 0;
+            font-size: 16px;
+            font-weight: bold;
+            border-bottom: none;
+        }
+        .product-table {
+            width: 100%;
+            border-collapse: collapse; /* For better table structure */
+        }
+        .product-table th,
+        .product-table td {
+            padding: 4px 2px; /* Reduced padding */
             text-align: left;
         }
-        th {
-            background-color: #f5f5f5;
-            font-weight: bold;
-            color: #333;
-        }
-        tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-        tr:hover {
-            background-color: #f5f5f5;
-        }
-        .footer {
-            text-align: center;
-            font-size: 0.9em;
-            color: #666;
-            border-top: 1px solid #eee;
-            padding-top: 20px;
-            margin-top: 30px;
-        }
-        .price {
+        .product-table th.price-col, 
+        .product-table td.price-col {
             text-align: right;
-            font-weight: bold;
-            color: #e53935;
+            min-width: 90px; /* Adjusted min-width */
         }
-        .index {
-            text-align: center;
-            width: 50px;
+        .product-table th.name-col {
+             width: auto; /* Allow name to take up space */
         }
+        .product-row:hover {
+            background-color: #f5f5f5;
+        }
+
+        /* Styles for print (A4) */
         @media print {
             body {
                 padding: 0;
+                font-size: 10pt; /* Adjusted for A4 */
             }
             @page {
                 margin: 1cm;
-                size: A4;
+                size: A4 portrait;
             }
-            .customer-info {
+            .info-section {
                 border: none;
                 background: none;
+                padding: 10px 0;
             }
-            tr:hover {
-                background-color: inherit;
+            .product-row:hover {
+                background-color: transparent;
             }
-            .price {
-                color: #000;
+            .product-table th.price-col, 
+            .product-table td.price-col {
+                 min-width: 70px; /* Adjust if needed for print */
             }
+            .header h1 { font-size: 20px; }
+            .info-section h2 { font-size: 16px; }
+            .category-header { font-size: 14px; }
         }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>BẢNG GIÁ SẢN PHẨM</h1>
+        <h1>{{#if isRetail}}{{pageTitle}}{{else}}BẢNG GIÁ SẢN PHẨM{{/if}}</h1>
         <p>Ngày: {{currentDate}}</p>
     </div>
 
-    <div class="customer-info">
+    {{#unless isRetail}}
+    <div class="info-section customer-info">
         <h2>{{customerName}}</h2>
         <p>Mã khách hàng: {{customerCode}}</p>
     </div>
+    {{/unless}}
 
-    <table>
-        <thead>
-            <tr>
-                <th class="index">STT</th>
-                <th>Tên sản phẩm</th>
-                <th style="width: 150px;">Giá (VNĐ)</th>
-            </tr>
-        </thead>
-        <tbody>
-            {{#each products}}
-            <tr>
-                <td class="index">{{inc @index}}</td>
-                <td>{{fullName}}</td>
-                <td class="price">{{formatPrice price}}</td>
-            </tr>
-            {{/each}}
-        </tbody>
-    </table>
-
-    <div class="footer">
-        <p>Bảng giá có hiệu lực từ ngày {{currentDate}}</p>
-        <p>Mọi thắc mắc xin vui lòng liên hệ bộ phận kinh doanh</p>
-        <p>Hotline: 0123.456.789</p>
+    <div class="product-list">
+        {{#each categories}}
+        <div class="category-section">
+            <h3 class="category-header">{{name}}</h3>
+            <table class="product-table">
+                <tbody>
+                    {{#each products}}
+                    <tr class="product-row">
+                        <td class="name-col">{{fullName}}</td>
+                        {{#if ../../isRetail}}
+                        <td class="price-col">{{formatPrice basePrice}}</td>
+                        <td class="price-col">{{formatPrice retailPrice}}</td>
+                        {{else}}
+                        <td class="price-col">{{formatPrice price}}</td>
+                        {{/if}}
+                    </tr>
+                    {{/each}}
+                </tbody>
+            </table>
+        </div>
+        {{/each}}
     </div>
+
 </body>
-</html> 
+</html>
