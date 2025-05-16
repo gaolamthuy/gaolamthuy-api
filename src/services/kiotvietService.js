@@ -1299,7 +1299,7 @@ async function updateProductChangelog(productId, oldData, newData) {
             updated_at: new Date()
         };
 
-        await supabase.from('glt_products_changelog').insert(changelog);
+        await supabase.from('glt_product_changelog').insert(changelog);
     } catch (error) {
         console.error('Error updating product changelog:', error);
         throw new Error(`Failed to update product changelog: ${error.message}`);
