@@ -98,12 +98,12 @@
             • {{fullName}}
             {{#if costChange}}
             <span class="price-change {{#if costIncrease}}price-increase{{else}}price-decrease{{/if}}">
-                | {{#if costIncrease}}tăng{{else}}giảm{{/if}} {{formatPrice costDiff}}
+                | {{#if costIncrease}}tăng{{else}}giảm{{/if}} {{formatPrice costDiff}} đ
             </span>
             {{/if}}
             {{#if descriptionChange}}
             <span class="description-change">
-                | {{#if costChange}}- {{/if}}{{oldDescription}} <span class="change-arrow">→</span> {{newDescription}}
+                | {{#if costChange}}{{/if}}{{oldDescription}} <span class="change-arrow">→</span> {{newDescription}}
             </span>
             {{/if}}
         </div>

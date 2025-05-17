@@ -1287,19 +1287,55 @@ async function getProductDetails(productId) {
  */
 async function updateProductChangelog(productId, oldData, newData) {
     try {
-        const changelog = {
-            product_id: productId,
-            old_baseprice: oldData.basePrice,
-            new_baseprice: newData.basePrice,
-            old_cost: oldData.inventories[0]?.cost,
-            new_cost: newData.inventories[0]?.cost,
-            old_description: oldData.description,
-            new_description: newData.description,
-            created_at: new Date(),
-            updated_at: new Date()
-        };
+        const changes = [];
 
-        await supabase.from('glt_product_changelogs').insert(changelog);
+        // Check for base price change
+        if (oldData.basePrice !== newData.basePrice) {
+            changes.push({
+                kiotviet_id: productId,
+                field: 'base_price',
+                old_value: oldData.basePrice?.toString(),
+                new_value: newData.basePrice?.toString(),
+                created_at: new Date()
+            });
+        }
+
+        // Check for cost change
+        const oldCost = oldData.inventories?.[0]?.cost;
+        const newCost = newData.inventories?.[0]?.cost;
+        if (oldCost !== newCost) {
+            changes.push({
+                kiotviet_id: productId,
+                field: 'cost',
+                old_value: oldCost?.toString(),
+                new_value: newCost?.toString(),
+                created_at: new Date()
+            });
+        }
+
+        // Check for description change
+        if (oldData.description !== newData.description) {
+            changes.push({
+                kiotviet_id: productId,
+                field: 'description',
+                old_value: oldData.description || '',
+                new_value: newData.description || '',
+                created_at: new Date()
+            });
+        }
+
+        // Insert changes if any
+        if (changes.length > 0) {
+            const { error } = await supabase
+                .from('glt_product_changelogs')
+                .insert(changes);
+
+            if (error) {
+                console.error('Error inserting product changelog:', error);
+                throw error;
+            }
+            console.log(`✅ Added ${changes.length} changelog entries for product ${productId}`);
+        }
     } catch (error) {
         console.error('Error updating product changelog:', error);
         throw new Error(`Failed to update product changelog: ${error.message}`);

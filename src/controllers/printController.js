@@ -447,15 +447,15 @@ exports.getChangelog = async (req, res) => {
           
           if (change.costChange) {
             const direction = change.costIncrease ? 'tăng' : 'giảm';
-            line += ` ${direction} ${formatCurrency(change.costDiff)}`;
+            line += ` | ${direction} ${formatCurrency(change.costDiff)} đ`;
           }
           
           if (change.descriptionChange) {
-            if (change.costChange) line += ' - ';
+            if (change.costChange) line += ' | ';
             line += `${change.oldDescription} → ${change.newDescription}`;
           }
           
-          output += `- ${line}\n`;
+          output += `• ${line}\n`;
         });
         output += '\n';
       });

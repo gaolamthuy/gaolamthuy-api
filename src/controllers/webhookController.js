@@ -17,7 +17,7 @@ exports.handleProductUpdate = async (req, res) => {
         });
 
         const webhookData = req.body;
-        // console.log('📦 Webhook payload:', JSON.stringify(webhookData, null, 2)); // Keep for debugging if needed
+        console.log('📦 Webhook payload:', JSON.stringify(webhookData, null, 2)); // Keep for debugging if needed
 
         if (webhookData?.Notifications?.[0]?.Data?.[0]) {
             const productUpdate = webhookData.Notifications[0].Data[0];
