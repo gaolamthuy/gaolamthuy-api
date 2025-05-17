@@ -339,7 +339,7 @@ exports.getChangelog = async (req, res) => {
 
     // Get changelog entries for the specified date
     const { data: changes, error: changesError } = await supabase
-      .from('glt_product_changelog')
+      .from('glt_product_changelogs')
       .select(`
         id,
         kiotviet_id,

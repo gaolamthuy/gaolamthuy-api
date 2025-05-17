@@ -117,7 +117,7 @@ exports.handleProductUpdate = async (req, res) => {
             if (changes.length > 0) {
                 console.log('🔄 Detected changes:', changes);
                 for (const change of changes) {
-                    await insertRecord('glt_product_changelog', {
+                    await insertRecord('glt_product_changelogs', {
                         kiotviet_id: kiotvietProductId,
                         field: change.field,
                         old_value: change.old_value,
@@ -125,7 +125,7 @@ exports.handleProductUpdate = async (req, res) => {
                         // created_at is default now()
                     });
                 }
-                console.log('✅ Changes logged to glt_product_changelog.');
+                console.log('✅ Changes logged to glt_product_changelogs.');
 
                 // 4. Update database
                 // Update kv_products

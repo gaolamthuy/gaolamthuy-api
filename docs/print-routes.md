@@ -101,7 +101,7 @@ GET /print/label-product?code=<product_code>&quantity=<qty>
 - `kv_pricebooks`: Customer group pricing
 - `kv_customers`: Customer information
 - `glt_print_jobs`: Print job tracking
-- `glt_product_changelog`: Product change history
+- `glt_product_changelogs`: Product change history
 
 ## Environment Variables Required
 - `SUPABASE_URL`
