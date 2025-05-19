@@ -1,61 +1,82 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const path = require('path');
-const morgan = require('morgan');
-const { errorResponse } = require('./utils/responseHandler');
+const path = require("path");
+const morgan = require("morgan");
+const { errorResponse } = require("./utils/responseHandler");
 
 // Import routes
-const mediaRoutes = require('./routes/mediaRoutes');
-const kiotvietRoutes = require('./routes/kiotvietRoutes');
-const posRoutes = require('./routes/posRoutes');
-const printRoutes = require('./routes/printRoutes');
-const paymentRoutes = require('./routes/paymentRoutes');
-const webhookRoutes = require('./routes/webhookRoutes');
+const mediaRoutes = require("./routes/mediaRoutes");
+const kiotvietRoutes = require("./routes/kiotvietRoutes");
+const posRoutes = require("./routes/posRoutes");
+const printRoutes = require("./routes/printRoutes");
+const paymentRoutes = require("./routes/paymentRoutes");
+const webhookRoutes = require("./routes/webhookRoutes");
 
 const app = express();
 
 // Initial request logging
 app.use((req, res, next) => {
-    console.log('\n🔍 Incoming Request:', {
-        method: req.method,
-        url: req.url,
-        headers: req.headers
-    });
-    next();
+  console.log("\n🔍 Incoming Request:", {
+    method: req.method,
+    url: req.url,
+    headers: req.headers,
+  });
+  next();
 });
 
 // Raw body parser for KiotViet webhooks
 const rawBodyParser = (req, res, next) => {
-    if (req.url.startsWith('/kiotviet/webhook') && req.headers['content-type'] === 'application/json') {
-        console.log('📥 KiotViet JSON Webhook: Capturing raw body.');
-        let data = [];
-        req.on('data', chunk => {
-            data.push(chunk);
-            // console.log('📦 Received chunk of size:', chunk.length); // Optional: can be verbose
-        });
-        req.on('end', () => {
-            try {
-                const rawBodyString = Buffer.concat(data).toString();
-                req.rawBody = rawBodyString; // For signature verification
-                console.log('✅ Raw body captured. Length:', req.rawBody.length);
-                // We will let the route-specific middleware or express.json parse req.body
-            } catch (e) {
-                console.error('❌ Error processing raw body in rawBodyParser:', e);
-            } finally {
-                next();
-            }
-        });
-    } else {
+  if (
+    req.url.startsWith("/kiotviet/webhook") &&
+    req.headers["content-type"] === "application/json"
+  ) {
+    console.log("📥 KiotViet JSON Webhook: Capturing raw body.");
+    let data = [];
+    req.on("data", (chunk) => {
+      data.push(chunk);
+      // console.log('📦 Received chunk of size:', chunk.length); // Optional: can be verbose
+    });
+    req.on("end", () => {
+      try {
+        const rawBodyString = Buffer.concat(data).toString();
+        req.rawBody = rawBodyString; // For signature verification
+        console.log("✅ Raw body captured. Length:", req.rawBody.length);
+        // We will let the route-specific middleware or express.json parse req.body
+      } catch (e) {
+        console.error("❌ Error processing raw body in rawBodyParser:", e);
+      } finally {
         next();
-    }
+      }
+    });
+  } else {
+    next();
+  }
 };
 
 // Middleware order is important
-app.use(cors());
-app.use(morgan('dev')); // Added morgan for standard HTTP request logging
+const allowedOrigins = process.env.FRONTEND_URL.split(",").map((s) => s.trim());
 
-app.use(rawBodyParser);  // Custom raw body parser
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Không có origin (kiểm tra từ máy chủ hoặc script) thì luôn cho phép
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        return callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+app.use(morgan("dev")); // Added morgan for standard HTTP request logging
+
+app.use(rawBodyParser); // Custom raw body parser
 
 // Logging before express.json()
 /*
@@ -81,29 +102,29 @@ app.use((req, res, next) => {
 app.use(express.urlencoded({ extended: true }));
 
 // Serve static files from the uploads directory
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 // Routes - ensure specific webhook routes are prioritized
-app.use('/media', mediaRoutes);
+app.use("/media", mediaRoutes);
 // app.use('/kiotviet', kiotvietRoutes); // Moved after webhookRoutes
-app.use('/pos', posRoutes);
-app.use('/print', printRoutes);
-app.use('/payment', paymentRoutes);
-app.use('/', webhookRoutes);  // Mount webhook routes at root, handles /kiotviet/webhook/*
-app.use('/kiotviet', kiotvietRoutes); // General KiotViet routes with basicAuth
+app.use("/pos", posRoutes);
+app.use("/print", printRoutes);
+app.use("/payment", paymentRoutes);
+app.use("/", webhookRoutes); // Mount webhook routes at root, handles /kiotviet/webhook/*
+app.use("/kiotviet", kiotvietRoutes); // General KiotViet routes with basicAuth
 
 // Simple health check
 app.get("/", (req, res) => {
   res.json({
-    message: 'Gao Lam Thuy Internal API',
-    version: '1.0.0',
+    message: "Gao Lam Thuy Internal API",
+    version: "1.0.0",
     endpoints: [
-      '/media - Media upload and management',
-      '/kiotviet - KiotViet data synchronization',
-      '/print - Print invoices and product labels',
-      '/payment - Process payment notifications from banks and mobile payment services',
-      '/kiotviet/webhook/product-update - KiotViet product update webhook'
-    ]
+      "/media - Media upload and management",
+      "/kiotviet - KiotViet data synchronization",
+      "/print - Print invoices and product labels",
+      "/payment - Process payment notifications from banks and mobile payment services",
+      "/kiotviet/webhook/product-update - KiotViet product update webhook",
+    ],
   });
 });
 
@@ -130,8 +151,10 @@ app.get("/test-print", (req, res) => {
       <div class="test-box">
         <h2>Environment Info</h2>
         <p>Server time: ${new Date().toISOString()}</p>
-        <p>SUPABASE_URL set: ${process.env.SUPABASE_URL ? 'Yes' : 'No'}</p>
-        <p>SUPABASE_SERVICE_KEY set: ${process.env.SUPABASE_SERVICE_KEY ? 'Yes' : 'No'}</p>
+        <p>SUPABASE_URL set: ${process.env.SUPABASE_URL ? "Yes" : "No"}</p>
+        <p>SUPABASE_SERVICE_KEY set: ${
+          process.env.SUPABASE_SERVICE_KEY ? "Yes" : "No"
+        }</p>
       </div>
       <div class="test-box">
         <h2>Test Links</h2>
@@ -146,8 +169,8 @@ app.get("/test-print", (req, res) => {
 });
 
 // Health check endpoint for deployment platform
-app.get('/healthz', (req, res) => {
-  res.status(200).send('OK');
+app.get("/healthz", (req, res) => {
+  res.status(200).send("OK");
 });
 
 // Catch-all for 404 errors
@@ -157,8 +180,13 @@ app.use((req, res, next) => {
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error('❌ Global Error Handler:', err.stack);
-  return errorResponse(res, err.message || 'Internal Server Error', err, err.status || 500);
+  console.error("❌ Global Error Handler:", err.stack);
+  return errorResponse(
+    res,
+    err.message || "Internal Server Error",
+    err,
+    err.status || 500
+  );
 });
 
-module.exports = app; 
+module.exports = app;
