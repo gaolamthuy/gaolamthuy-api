@@ -103,6 +103,8 @@ app.use(express.urlencoded({ extended: true }));
 
 // Serve static files from the uploads directory
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
+// Serve static files from the assets directory
+app.use("/assets", express.static(path.join(__dirname, "assets")));
 
 // Routes - ensure specific webhook routes are prioritized
 app.use("/media", mediaRoutes);

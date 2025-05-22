@@ -1,0 +1,15 @@
+{
+  "watch": ["src"],
+  "ignore": [
+    "tmp/",
+    "**/*.tmp",
+    "**/*.swp",
+    "**/*~",
+    "**/*___jb_tmp___",
+    "**/*___jb_old___",
+    "**/.DS_Store",
+    "output/"
+  ],
+  "ext": "js,json",
+  "delay": "500ms"
+}

@@ -3,12 +3,12 @@ const { createCanvas, loadImage } = require("canvas");
 const fs = require("fs");
 const path = require("path");
 const { registerFonts } = require("../assets/fonts");
-
-// Register all fonts
-registerFonts();
-
 const { uploadToS3 } = require("../utils/s3");
 const { createClient } = require("@supabase/supabase-js");
+const puppeteer = require("puppeteer");
+
+// Register all fonts for canvas
+registerFonts();
 
 // Create Supabase client
 const supabase = createClient(
@@ -22,65 +22,7 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
-/**
- * Generate a slug from product name or code
- * @param {Object} product - The product object
- * @returns {string} A slug string
- */
-const generateProductSlug = (product) => {
-  let baseSlug = "";
-
-  // Use name as primary source if available
-  if (product.name) {
-    baseSlug = product.name.toLowerCase();
-  }
-  // Fallback to code
-  else if (product.code) {
-    baseSlug = product.code.toLowerCase();
-  }
-  // Last resort, use kiotviet_id with prefix
-  else {
-    baseSlug = `product-${product.kiotviet_id}`;
-  }
-
-  // Replace special characters and spaces with dashes
-  let slug = baseSlug
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // Remove accents
-    .replace(/[^a-z0-9\s-]/g, "") // Remove non-alphanumeric chars except spaces and dashes
-    .replace(/\s+/g, "-") // Replace spaces with dashes
-    .replace(/-+/g, "-") // Replace multiple dashes with single dash
-    .trim();
-
-  // Add kiotviet_id at the end to ensure uniqueness
-  return `${slug}-${product.kiotviet_id}`;
-};
-
-const getShortPriceString = async (productId) => {
-  const { data: inventory } = await supabase
-    .from("kv_product_inventories")
-    .select("cost")
-    .eq("product_id", productId)
-    .limit(1)
-    .single();
-
-  if (!inventory || !inventory.cost) return null;
-
-  const cost = parseFloat(inventory.cost) + 2000;
-  const costShort = (cost / 1000).toFixed(1);
-
-  const { data: product } = await supabase
-    .from("kv_products")
-    .select("base_price")
-    .eq("id", productId)
-    .single();
-
-  if (!product || !product.base_price) return null;
-
-  const basePriceShort = (parseFloat(product.base_price) / 1000).toFixed(1);
-
-  return `${basePriceShort}/${costShort}`;
-};
+// Removed unused functions: generateProductSlug and getShortPriceString
 
 /**
  * Handle media uploads and apply image processing
@@ -96,7 +38,7 @@ const handleUpload = async (req, res) => {
     }
 
     // Check if kiotviet_id was provided
-    const { kiotviet_id, overlayText } = req.body;
+    const { kiotviet_id } = req.body;
     if (!kiotviet_id) {
       return res.status(400).json({
         success: false,
@@ -109,7 +51,7 @@ const handleUpload = async (req, res) => {
     // Find product by kiotviet_id
     const { data: product, error: searchError } = await supabase
       .from("kv_products")
-      .select("*, glt_gallery_thumbnail_title")
+      .select("*")
       .eq("kiotviet_id", kiotviet_id)
       .single();
 
@@ -129,355 +71,27 @@ const handleUpload = async (req, res) => {
       });
     }
 
-    // Get product details
-    const code = product.code;
-    const categoryId = product.category_id;
+    // Process the image and upload
+    const result = await processAndUploadImages(product, req.file);
 
-    // Get thumbnail title from product
-    let thumbnailTitle =
-      product.glt_gallery_thumbnail_title || overlayText || "";
-    console.log(`📝 Debug - Product details retrieved:`, {
-      kiotviet_id,
-      name: product.name,
-      code,
-      categoryId,
-      hasGltGalleryThumbnailTitle: !!product.glt_gallery_thumbnail_title,
-      glt_gallery_thumbnail_title: product.glt_gallery_thumbnail_title,
-      hasOverlayText: !!overlayText,
-      overlayText,
-      finalThumbnailTitle: thumbnailTitle,
-    });
-
-    // Get short price text
-    const shortPriceText = await getShortPriceString(product.id);
-    if (shortPriceText) {
-      thumbnailTitle += `\n${shortPriceText}`;
-    }
-    console.log(
-      `📝 Debug - Thumbnail title with short price: "${thumbnailTitle}"`
-    );
-
-    // Process image with sharp
-    const imagePath = req.file.path;
-    const imageInfo = await sharp(imagePath).metadata();
-
-    console.log(
-      `🖼️ Original image dimensions: ${imageInfo.width} x ${imageInfo.height}, format: ${imageInfo.format}`
-    );
-
-    // Generate new timestamp for image_updated_at
-    const imageUpdatedAt = Date.now();
-
-    // Create temporary directories for processed images
-    const tempDir = path.join(__dirname, "../../uploads/temp");
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-
-    // Define paths for processed images
-    const thumbnailPath = path.join(tempDir, `${code}-thumbnail.webp`);
-    const zoomPath = path.join(tempDir, `${code}-zoom.webp`);
-    const resizedThumbnailPath = path.join(
-      tempDir,
-      `${code}-resized-thumbnail.png`
-    );
-
-    // First upload original image to R2
-    const originalKey = `product-images/dynamic/original/${code}.${imageInfo.format}`;
-    const originalS3Result = await uploadToS3(
-      imagePath,
-      `${code}.${imageInfo.format}`,
-      originalKey
-    );
-    console.log(`✅ Original image uploaded to R2: ${originalKey}`);
-
-    // First resize the thumbnail image (300x300)
-    const resizedBlurredPath = path.join(tempDir, `${code}-resized-blur.png`);
-    await sharp(imagePath)
-      .resize(300, 300, {
-        fit: "cover",
-        position: "center",
-      })
-      .blur(2.5) // 💡 bạn có thể chỉnh từ 1.5 đến 3.0 tùy ảnh
-      .png()
-      .toFile(resizedBlurredPath);
-
-    // Now apply canvas overlay with border and text (if provided)
-    console.log(`🔍 Debug - Canvas preparation:`, {
-      hasThumbnailTitle: !!thumbnailTitle,
-      thumbnailTitleLength: thumbnailTitle ? thumbnailTitle.length : 0,
-      borderColor,
-      willUseCanvas: !!thumbnailTitle,
-      resizedImagePath: resizedThumbnailPath,
-      resizedImageFormat: "PNG",
-    });
-
-    // Handle escape sequences in the title text
-    if (thumbnailTitle && thumbnailTitle.includes("\\n")) {
-      thumbnailTitle = thumbnailTitle.replace(/\\n/g, "\n");
-      console.log(
-        `📝 Processed escape sequences in title: "${thumbnailTitle}"`
-      );
-    }
-
-    if (thumbnailTitle) {
-      try {
-        console.log(
-          `🎨 Creating canvas with border color ${borderColor} and text overlay`
-        );
-        const width = 300;
-        const height = 300;
-        const canvas = createCanvas(width, height);
-        const ctx = canvas.getContext("2d");
-
-        // Load the resized image
-        console.log(
-          `🖼️ Loading resized image for canvas: ${resizedThumbnailPath}`
-        );
-        const image = await loadImage(resizedBlurredPath);
-        console.log(
-          `✅ Image loaded successfully: ${image.width}x${image.height}`
-        );
-
-        // Draw a border (5px) using the category color
-        ctx.fillStyle = borderColor;
-        ctx.fillRect(0, 0, width, height);
-        console.log(`🎨 Drew border rectangle with color: ${borderColor}`);
-
-        // Draw the image inside the border
-        ctx.drawImage(image, 5, 5, width - 10, height - 10);
-        console.log(`🖼️ Drew image inside border`);
-
-        // Add text overlay
-        console.log(
-          `✏️ Adding text overlay: "${thumbnailTitle.substring(0, 20)}${
-            thumbnailTitle.length > 20 ? "..." : ""
-          }"`
-        );
-
-        // Handle multiline text
-        const lines = thumbnailTitle.split("\n");
-        console.log(`📝 Split text into ${lines.length} lines:`, lines);
-
-        const lineHeight = 42;
-        const baseY = height / 2 - ((lines.length - 1) * lineHeight) / 2;
-        console.log(
-          `📐 Text positioning - baseY: ${baseY}, lineHeight: ${lineHeight}`
-        );
-
-        // // Semi-transparent background for text
-        // ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-        // ctx.fillRect(5, height - 85, width - 10, 80);
-        // console.log(`🎨 Drew semi-transparent background for text`);
-
-        // 2. Nền mờ sau chữ:
-        ctx.fillStyle = borderColor;
-        // ctx.fillRect(10, height / 2 - (lines.length * 20), width - 20, lines.length * 42);
-
-        // 3. Text settings
-        // 5 cases for
-        ctx.font =
-          lines.length === 1
-            ? 'bold 60px "Nunito"' // 1 line
-            : lines.length === 2
-            ? 'bold 50px "Nunito"' // 2 lines
-            : lines.length === 3
-            ? 'bold 40px "Nunito"' // 3 lines
-            : lines.length === 4
-            ? 'bold 40px "Nunito"' // 4 lines
-            : 'bold 30px "Nunito"'; // 5 lines
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillStyle = "white";
-        ctx.strokeStyle = borderColor;
-        ctx.lineWidth = 3;
-        ctx.shadowColor = borderColor;
-        ctx.shadowBlur = 3;
-
-        lines.forEach((line, i) => {
-          const y = baseY + i * lineHeight;
-          ctx.strokeText(line, width / 2, y);
-          ctx.fillText(line, width / 2, y);
-          console.log(`✏️ Drew line ${i + 1}: "${line}" at y=${y}`);
-        });
-
-        // Save the canvas to file (as WebP for final output)
-        console.log(`💾 Saving canvas to file: ${thumbnailPath}`);
-
-        // First save as PNG (better canvas compatibility)
-        const tempPngPath = path.join(tempDir, `${code}-canvas-output.png`);
-        const buffer = canvas.toBuffer("image/png");
-        fs.writeFileSync(tempPngPath, buffer);
-        console.log(
-          `✅ Canvas saved to temporary PNG: ${tempPngPath}, size: ${buffer.length} bytes`
-        );
-
-        // Then convert to WebP with sharp
-        await sharp(tempPngPath).webp({ quality: 80 }).toFile(thumbnailPath);
-        console.log(`✅ Converted canvas output to WebP: ${thumbnailPath}`);
-
-        // Clean up the temporary PNG
-        if (fs.existsSync(tempPngPath)) {
-          fs.unlinkSync(tempPngPath);
-          console.log(`🗑️ Deleted temporary PNG file: ${tempPngPath}`);
-        }
-      } catch (canvasError) {
-        console.error("❌ Error creating canvas:", canvasError);
-        console.log("⚠️ Canvas error details:", {
-          errorName: canvasError.name,
-          errorMessage: canvasError.message,
-          errorStack: canvasError.stack,
-        });
-        console.log("⚠️ Falling back to simple border using sharp");
-
-        // If canvas fails, fall back to simple border with sharp
-        await sharp(resizedThumbnailPath)
-          .extend({
-            top: 5,
-            bottom: 5,
-            left: 5,
-            right: 5,
-            background: borderColor,
-          })
-          .webp({ quality: 80 })
-          .toFile(thumbnailPath);
-
-        console.log(
-          `✅ Fallback thumbnail created with sharp at ${thumbnailPath}`
-        );
-      }
-    } else {
-      console.log(
-        `ℹ️ No thumbnail title provided, using simple border without text`
-      );
-      // If no overlay text, add just the border
-      console.log(`🎨 Adding simple border with color ${borderColor}`);
-      try {
-        await sharp(resizedThumbnailPath)
-          .extend({
-            top: 5,
-            bottom: 5,
-            left: 5,
-            right: 5,
-            background: borderColor,
-          })
-          .webp({ quality: 80 })
-          .toFile(thumbnailPath);
-
-        console.log(`✅ Thumbnail with border saved to ${thumbnailPath}`);
-
-        // Delete the resized file now that we have the final thumbnail
-        if (fs.existsSync(resizedBlurredPath)) {
-          fs.unlinkSync(resizedBlurredPath);
-          console.log(`🗑️ Deleted blurred image: ${resizedBlurredPath}`);
-        }
-      } catch (sharpError) {
-        console.error("❌ Error adding border with sharp:", sharpError);
-
-        // If border extension fails, just use the resized image as is
-        console.log("⚠️ Using resized image without border as fallback");
-        fs.copyFileSync(resizedThumbnailPath, thumbnailPath);
-      }
-    }
-
-    // Process zoom version (1200px width, webp format)
-    await sharp(imagePath)
-      .resize({
-        width: 1200,
-        withoutEnlargement: true,
-      })
-      .webp({ quality: 85 })
-      .toFile(zoomPath);
-
-    // Process enhanced zoom version with text overlay, logo, and border
-    if (categoryId) {
-      try {
-        await processEnhancedZoomImage(
-          zoomPath,
-          code,
-          product.id,
-          categoryId,
-          tempDir
-        );
-      } catch (enhancedError) {
-        console.error("❌ Error creating enhanced zoom image:", enhancedError);
-        console.log("⚠️ Continuing with standard zoom image only");
-      }
-    }
-
-    // Get thumbnail dimensions and size
-    const thumbnailInfo = await sharp(thumbnailPath).metadata();
-    const thumbnailStats = fs.statSync(thumbnailPath);
-
-    // Get zoom dimensions and size
-    const zoomInfo = await sharp(zoomPath).metadata();
-    const zoomStats = fs.statSync(zoomPath);
-
-    console.log(
-      `🖼️ Thumbnail: ${thumbnailInfo.width}x${
-        thumbnailInfo.height
-      }, ${Math.round(thumbnailStats.size / 1024)}KB`
-    );
-    console.log(
-      `🖼️ Zoom: ${zoomInfo.width}x${zoomInfo.height}, ${Math.round(
-        zoomStats.size / 1024
-      )}KB`
-    );
-
-    // Upload thumbnail to S3
-    const thumbnailKey = `product-images/dynamic/thumbnail/${code}.webp`;
-    const thumbnailS3Result = await uploadToS3(
-      thumbnailPath,
-      `${code}.webp`,
-      thumbnailKey
-    );
-
-    // Upload zoom version to S3
-    const zoomKey = `product-images/dynamic/zoom/${code}.webp`;
-    const zoomS3Result = await uploadToS3(zoomPath, `${code}.webp`, zoomKey);
-
-    // Update product information
-    const { data: updatedProduct, error: updateError } = await supabase
-      .from("kv_products")
-      .update({
-        glt_image_updated_at: imageUpdatedAt,
-        glt_updated_at: new Date().toISOString(),
-        glt_gallery_original_url: originalS3Result.url || null,
-        glt_gallery_thumbnail_url: thumbnailS3Result.url || null,
-        glt_gallery_zoom_url: zoomS3Result.url || null,
-      })
-      .eq("kiotviet_id", kiotviet_id)
-      .select()
-      .single();
-
-    if (updateError) {
-      console.error("❌ Error updating product:", updateError);
-      throw updateError;
-    }
-
-    // Clean up temporary files
-    const filesToClean = [
-      imagePath,
-      thumbnailPath,
-      zoomPath,
-      resizedThumbnailPath,
-    ];
-    for (const file of filesToClean) {
-      if (fs.existsSync(file)) {
-        fs.unlinkSync(file);
-        console.log(`🗑️ Deleted temporary file: ${file}`);
-      }
+    // Update manifest in the background
+    try {
+      updateImageManifest().catch((err) => {
+        console.error("❌ Background manifest update failed:", err);
+      });
+    } catch (manifestError) {
+      console.error("❌ Background manifest update failed:", manifestError);
     }
 
     return res.json({
       success: true,
       message: "Image processed and uploaded successfully",
       data: {
-        product: updatedProduct,
+        product: result.updatedProduct,
         images: {
-          original: originalS3Result.url,
-          thumbnail: thumbnailS3Result.url,
-          zoom: zoomS3Result.url,
+          original: result.originalUrl,
+          thumbnail: result.thumbnailUrl,
+          zoom: result.zoomUrl,
         },
       },
     });
@@ -488,6 +102,493 @@ const handleUpload = async (req, res) => {
       message: "Error processing image",
       error: error.message,
     });
+  }
+};
+
+/**
+ * Process and upload product images
+ * @param {Object} product - Product object from database
+ * @param {Object} fileInfo - Uploaded file information
+ * @returns {Object} - Updated product and image URLs
+ */
+const processAndUploadImages = async (product, fileInfo) => {
+  // Get product details
+  const code = product.code;
+  const categoryId = product.category_id;
+
+  // Process image with sharp
+  const imagePath = fileInfo.path;
+  const imageInfo = await sharp(imagePath).metadata();
+
+  console.log(
+    `🖼️ Original image dimensions: ${imageInfo.width} x ${imageInfo.height}, format: ${imageInfo.format}`
+  );
+
+  // Generate new timestamp for image_updated_at
+  const imageUpdatedAt = Date.now();
+
+  // Create temporary directories for processed images
+  const tempDir = path.join(__dirname, "../../uploads/temp");
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+
+  // Define paths for processed images
+  const thumbnailPath = path.join(tempDir, `${code}-thumbnail.webp`);
+  const zoomPath = path.join(tempDir, `${code}-zoom.webp`);
+
+  // First upload original image to R2
+  const originalKey = `product-images/dynamic/original/${code}.${imageInfo.format}`;
+  const originalS3Result = await uploadToS3(
+    imagePath,
+    `${code}.${imageInfo.format}`,
+    originalKey
+  );
+  console.log(`✅ Original image uploaded to R2: ${originalKey}`);
+
+  // Create simple thumbnail (300x300) using just sharp resizing
+  await sharp(imagePath)
+    .resize(300, 300, {
+      fit: "cover",
+      position: "center",
+    })
+    .webp({ quality: 80 })
+    .toFile(thumbnailPath);
+
+  console.log(`✅ Thumbnail created at ${thumbnailPath}`);
+
+  // Process zoom version with text overlay using canvas
+  await processZoomImage(imagePath, zoomPath, product);
+
+  // Get thumbnail dimensions and size
+  const thumbnailInfo = await sharp(thumbnailPath).metadata();
+  const thumbnailStats = fs.statSync(thumbnailPath);
+
+  // Get zoom dimensions and size
+  const zoomInfo = await sharp(zoomPath).metadata();
+  const zoomStats = fs.statSync(zoomPath);
+
+  console.log(
+    `🖼️ Thumbnail: ${thumbnailInfo.width}x${thumbnailInfo.height}, ${Math.round(
+      thumbnailStats.size / 1024
+    )}KB`
+  );
+  console.log(
+    `🖼️ Zoom: ${zoomInfo.width}x${zoomInfo.height}, ${Math.round(
+      zoomStats.size / 1024
+    )}KB`
+  );
+
+  // Upload thumbnail to S3
+  const thumbnailKey = `product-images/dynamic/thumbnail/${code}.webp`;
+  const thumbnailS3Result = await uploadToS3(
+    thumbnailPath,
+    `${code}.webp`,
+    thumbnailKey
+  );
+
+  // Upload zoom version to S3
+  const zoomKey = `product-images/dynamic/zoom/${code}.webp`;
+  const zoomS3Result = await uploadToS3(zoomPath, `${code}.webp`, zoomKey);
+
+  // Update the product slug if not already set
+  let slug = product.glt_slug;
+  if (!slug) {
+    slug = generateProductSlug(product);
+  }
+
+  // Update product information
+  const { data: updatedProduct, error: updateError } = await supabase
+    .from("kv_products")
+    .update({
+      glt_image_updated_at: imageUpdatedAt,
+      glt_updated_at: new Date().toISOString(),
+      glt_gallery_original_url: originalS3Result.url || null,
+      glt_gallery_thumbnail_url: thumbnailS3Result.url || null,
+      glt_gallery_zoom_url: zoomS3Result.url || null,
+      glt_slug: slug,
+    })
+    .eq("kiotviet_id", product.kiotviet_id)
+    .select()
+    .single();
+
+  if (updateError) {
+    console.error("❌ Error updating product:", updateError);
+    throw updateError;
+  }
+
+  // Clean up temporary files
+  const filesToClean = [imagePath, thumbnailPath, zoomPath];
+  for (const file of filesToClean) {
+    if (fs.existsSync(file)) {
+      fs.unlinkSync(file);
+      console.log(`🗑️ Deleted temporary file: ${file}`);
+    }
+  }
+
+  return {
+    updatedProduct,
+    originalUrl: originalS3Result.url,
+    thumbnailUrl: thumbnailS3Result.url,
+    zoomUrl: zoomS3Result.url,
+  };
+};
+
+/**
+ * Process zoom image with text overlay
+ * @param {string} sourcePath - Path to the source image
+ * @param {string} outputPath - Path to save the processed image
+ * @param {Object} product - Product object
+ */
+const processZoomImage = async (sourcePath, outputPath, product) => {
+  try {
+    // Get directory and base name for temp files
+    const tempPngPath = outputPath.replace(".webp", "-temp.png");
+
+    // First resize the image to PNG (not WebP) for canvas compatibility
+    await sharp(sourcePath)
+      .resize({
+        width: 1600,
+        height: 1200,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .png() // Use PNG for canvas compatibility
+      .toFile(tempPngPath);
+
+    console.log(
+      `✅ Created temporary PNG for canvas processing: ${tempPngPath}`
+    );
+
+    // Get category color and product details from the database
+    let borderColor = "#ffb96e"; // Default color
+    let categoryName = "Chưa phân loại";
+    let modifiedDate = new Date().toLocaleDateString("vi-VN");
+    let basePrice = 0;
+    let wholeP10Price = 0;
+    let description = "";
+
+    // Fetch complete product info from view_product
+    const { data: productDetails } = await supabase
+      .from("view_product")
+      .select("*")
+      .eq("kiotviet_id", product.kiotviet_id)
+      .single();
+
+    if (productDetails) {
+      categoryName = productDetails.category_name || categoryName;
+      borderColor = productDetails.glt_color_border || borderColor;
+      modifiedDate = productDetails.modified_date
+        ? new Date(productDetails.modified_date)
+        : new Date();
+      basePrice = productDetails.base_price || 0;
+      wholeP10Price = productDetails.whole_p10_price || 0;
+      description = productDetails.description || "";
+    } else if (product.category_id) {
+      // Fallback if we can't get from view_product but have category_id
+      const { data: category } = await supabase
+        .from("kv_product_categories")
+        .select("category_name, glt_color_border")
+        .eq("category_id", product.category_id)
+        .single();
+
+      if (category) {
+        categoryName = category.category_name || categoryName;
+        borderColor = category.glt_color_border || borderColor;
+      }
+    }
+
+    // Create canvas with the image dimensions
+    const imageInfo = await sharp(tempPngPath).metadata();
+    const canvas = createCanvas(imageInfo.width, imageInfo.height);
+    const ctx = canvas.getContext("2d");
+
+    console.log(
+      `🎨 Canvas created with dimensions: ${imageInfo.width}x${imageInfo.height}`
+    );
+
+    // Load the PNG image onto the canvas
+    try {
+      const image = await loadImage(tempPngPath);
+      ctx.drawImage(image, 0, 0, imageInfo.width, imageInfo.height);
+      console.log(`✅ Image successfully loaded onto canvas`);
+    } catch (loadError) {
+      console.error(`❌ Error loading image onto canvas:`, loadError);
+      throw loadError;
+    }
+
+    // Format dates with dd/mm/yyyy - HH:mm format
+    const formatDate = (date) => {
+      const day = String(date.getDate()).padStart(2, "0");
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const year = date.getFullYear();
+      const hours = String(date.getHours()).padStart(2, "0");
+      const minutes = String(date.getMinutes()).padStart(2, "0");
+
+      return `${day}/${month}/${year} - ${hours}:${minutes}`;
+    };
+
+    const modifiedDateFormatted = formatDate(modifiedDate);
+    const imageUpdatedDate = product.glt_image_updated_at
+      ? formatDate(new Date(parseInt(product.glt_image_updated_at)))
+      : formatDate(new Date());
+
+    // Format currency
+    const formatCurrency = (value) => {
+      return new Intl.NumberFormat("vi-VN").format(value);
+    };
+
+    // Add light gray semi-transparent background at the bottom
+    const bottomBgHeight = 170;
+    // Use light gray background with transparency
+    ctx.fillStyle = "rgba(240, 240, 240, 0.85)"; // Light gray with 85% opacity
+    ctx.fillRect(
+      0,
+      imageInfo.height - bottomBgHeight,
+      imageInfo.width,
+      bottomBgHeight
+    );
+
+    // Add logo at bottom left
+    try {
+      const logoPath = path.join(__dirname, "../assets/images/logo-main.png");
+      const logo = await loadImage(logoPath);
+      const logoSize = 140;
+      const logoMargin = 15;
+      ctx.drawImage(
+        logo,
+        logoMargin,
+        imageInfo.height - logoSize - logoMargin,
+        logoSize,
+        logoSize
+      );
+      console.log(`✅ Added logo to canvas`);
+    } catch (logoError) {
+      console.error(`❌ Error adding logo:`, logoError);
+      // Continue without logo
+    }
+
+    // Add product details at bottom right
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+
+    // Calculate positions
+    const rightMargin = 30;
+    const textStartY = imageInfo.height - bottomBgHeight + 30;
+
+    // Main text (category - description)
+    ctx.font = 'bold 30px "Nunito"';
+    ctx.fillStyle = borderColor; // Use category color for text
+    ctx.shadowColor = "rgba(0,0,0,0.3)";
+    ctx.shadowBlur = 2;
+
+    // If description is too long, truncate it
+    const maxDescLength = 35;
+    const truncatedDesc =
+      description.length > maxDescLength
+        ? description.substring(0, maxDescLength) + "..."
+        : description;
+
+    const titleText = `${categoryName} - ${truncatedDesc}`;
+    ctx.fillText(titleText, imageInfo.width - rightMargin, textStartY);
+
+    // Price line
+    ctx.font = 'bold 32px "Nunito"';
+    const priceText = `lẻ ${formatCurrency(basePrice)} | sỉ ${formatCurrency(
+      wholeP10Price
+    )}`;
+    ctx.fillText(priceText, imageInfo.width - rightMargin, textStartY + 45);
+
+    // Update timestamps (smaller text)
+    ctx.font = '18px "Nunito"';
+    ctx.fillText(
+      `cập nhật thông tin: ${modifiedDateFormatted}`,
+      imageInfo.width - rightMargin,
+      textStartY + 90
+    );
+
+    ctx.fillText(
+      `cập nhật hình ảnh: ${imageUpdatedDate}`,
+      imageInfo.width - rightMargin,
+      textStartY + 120
+    );
+
+    console.log(`✅ Added detailed text overlay to canvas`);
+
+    // Save the canvas output to another temp PNG file
+    const canvasOutputPath = tempPngPath.replace("-temp.png", "-canvas.png");
+    const buffer = canvas.toBuffer("image/png");
+    fs.writeFileSync(canvasOutputPath, buffer);
+    console.log(`✅ Canvas saved to ${canvasOutputPath}`);
+
+    // Convert to WebP with sharp for final output
+    await sharp(canvasOutputPath).webp({ quality: 85 }).toFile(outputPath);
+    console.log(`✅ Converted canvas output to WebP at ${outputPath}`);
+
+    // Clean up the temporary files
+    const tempFiles = [tempPngPath, canvasOutputPath];
+    for (const file of tempFiles) {
+      if (fs.existsSync(file)) {
+        fs.unlinkSync(file);
+        console.log(`🗑️ Deleted temporary file: ${file}`);
+      }
+    }
+
+    console.log(`✅ Zoom image processed with text overlay: ${outputPath}`);
+  } catch (error) {
+    console.error("❌ Error processing zoom image:", error);
+    console.log("⚠️ Falling back to standard resized image");
+
+    // Create a standard WebP image without canvas processing
+    try {
+      await sharp(sourcePath)
+        .resize({
+          width: 1600,
+          height: 1200,
+          fit: "inside",
+          withoutEnlargement: true,
+        })
+        .webp({ quality: 85 })
+        .toFile(outputPath);
+      console.log(`✅ Created fallback zoom image at ${outputPath}`);
+    } catch (fallbackError) {
+      console.error("❌ Error creating fallback zoom image:", fallbackError);
+    }
+
+    // Clean up any temporary files that might exist
+    const tempPngPath = outputPath.replace(".webp", "-temp.png");
+    const canvasOutputPath = tempPngPath.replace("-temp.png", "-canvas.png");
+    [tempPngPath, canvasOutputPath].forEach((file) => {
+      if (fs.existsSync(file)) {
+        fs.unlinkSync(file);
+      }
+    });
+  }
+};
+
+/**
+ * Reprocess images for a product after webhook update
+ * @param {number} kiotvietId - KiotViet product ID
+ */
+const reprocessProductImages = async (kiotvietId) => {
+  try {
+    console.log(
+      `🔄 Reprocessing images for product with KiotViet ID: ${kiotvietId}`
+    );
+
+    // Find product in database
+    const { data: product, error: productError } = await supabase
+      .from("kv_products")
+      .select("*")
+      .eq("kiotviet_id", kiotvietId)
+      .single();
+
+    if (productError || !product) {
+      console.error(
+        `❌ Product with KiotViet ID ${kiotvietId} not found:`,
+        productError?.message || "Not found"
+      );
+      return;
+    }
+
+    // Check if product has an original image
+    if (!product.glt_gallery_original_url) {
+      console.log(
+        `ℹ️ Product with KiotViet ID ${kiotvietId} has no original image to reprocess`
+      );
+      return;
+    }
+
+    // Download the original image
+    const originalUrl = product.glt_gallery_original_url;
+    const tempDir = path.join(__dirname, "../../uploads/temp");
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    const tempOriginalPath = path.join(
+      tempDir,
+      `${product.code}-original-temp.jpg`
+    );
+
+    // Using node-fetch to download the image
+    const fetch = require("node-fetch");
+    const response = await fetch(originalUrl);
+    const buffer = await response.buffer();
+    fs.writeFileSync(tempOriginalPath, buffer);
+
+    console.log(`✅ Original image downloaded to ${tempOriginalPath}`);
+
+    // Process thumbnail and zoom images
+    const thumbnailPath = path.join(tempDir, `${product.code}-thumbnail.webp`);
+    const zoomPath = path.join(tempDir, `${product.code}-zoom.webp`);
+
+    // Create simple thumbnail (300x300)
+    await sharp(tempOriginalPath)
+      .resize(300, 300, {
+        fit: "cover",
+        position: "center",
+      })
+      .webp({ quality: 80 })
+      .toFile(thumbnailPath);
+
+    console.log(`✅ Thumbnail created at ${thumbnailPath}`);
+
+    // Process zoom version with text overlay
+    await processZoomImage(tempOriginalPath, zoomPath, product);
+
+    // Upload thumbnail to S3
+    const thumbnailKey = `product-images/dynamic/thumbnail/${product.code}.webp`;
+    const thumbnailS3Result = await uploadToS3(
+      thumbnailPath,
+      `${product.code}.webp`,
+      thumbnailKey
+    );
+
+    // Upload zoom version to S3
+    const zoomKey = `product-images/dynamic/zoom/${product.code}.webp`;
+    const zoomS3Result = await uploadToS3(
+      zoomPath,
+      `${product.code}.webp`,
+      zoomKey
+    );
+
+    // Update product with new image timestamp
+    const imageUpdatedAt = Date.now();
+    const { error: updateError } = await supabase
+      .from("kv_products")
+      .update({
+        glt_image_updated_at: imageUpdatedAt,
+        glt_gallery_thumbnail_url: thumbnailS3Result.url || null,
+        glt_gallery_zoom_url: zoomS3Result.url || null,
+      })
+      .eq("kiotviet_id", kiotvietId);
+
+    if (updateError) {
+      console.error(`❌ Error updating product images:`, updateError.message);
+    } else {
+      console.log(
+        `✅ Product images reprocessed successfully for KiotViet ID: ${kiotvietId}`
+      );
+    }
+
+    // Clean up temporary files
+    const filesToClean = [tempOriginalPath, thumbnailPath, zoomPath];
+    for (const file of filesToClean) {
+      if (fs.existsSync(file)) {
+        fs.unlinkSync(file);
+      }
+    }
+
+    // Update manifest in the background
+    updateImageManifest().catch((err) => {
+      console.error("❌ Background manifest update failed:", err);
+    });
+
+    return true;
+  } catch (error) {
+    console.error(`❌ Error reprocessing product images:`, error);
+    return false;
   }
 };
 
@@ -534,9 +635,9 @@ const getProductImages = async (req, res) => {
     const versionParam = `?v=${product.glt_image_updated_at}`;
 
     const imageUrls = {
+      original: `${cdnBase}/product-images/dynamic/original/${product.glt_slug}.jpg${versionParam}`,
       thumbnail: `${cdnBase}/product-images/dynamic/thumbnail/${product.glt_slug}.webp${versionParam}`,
       zoom: `${cdnBase}/product-images/dynamic/zoom/${product.glt_slug}.webp${versionParam}`,
-      enhanced: `${cdnBase}/product-images/dynamic/zoom/${product.glt_slug}.webp${versionParam}`,
     };
 
     res.status(200).json({
@@ -552,81 +653,6 @@ const getProductImages = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error getting product images:", error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
-  }
-};
-
-/**
- * Add a new product with tags (admin functionality)
- */
-const addProductWithTags = async (req, res) => {
-  try {
-    const { kiotviet_id, tags, note, visible = true } = req.body;
-
-    if (!kiotviet_id) {
-      return res.status(400).json({
-        success: false,
-        message: "kiotviet_id is required",
-      });
-    }
-
-    if (!Array.isArray(tags) || tags.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "tags array is required with at least one tag",
-      });
-    }
-
-    // Check if kiotviet_id exists in kv_products
-    const { data: kiotvietProduct, error: kiotvietError } = await supabase
-      .from("kv_products")
-      .select("*")
-      .eq("kiotviet_id", kiotviet_id)
-      .single();
-
-    if (kiotvietError) {
-      return res.status(404).json({
-        success: false,
-        message: `No KiotViet product found with ID: ${kiotviet_id}`,
-      });
-    }
-
-    // Check if product already has GLT fields populated
-    if (kiotvietProduct.glt_tags) {
-      return res.status(400).json({
-        success: false,
-        message: `Product with kiotviet_id ${kiotviet_id} already has GLT data in kv_products`,
-      });
-    }
-
-    // Update product with GLT fields
-    const { data: updatedProduct, error: updateError } = await supabase
-      .from("kv_products")
-      .update({
-        glt_tags: tags,
-        glt_note: note,
-        glt_visible: visible,
-        glt_updated_at: new Date(),
-      })
-      .eq("kiotviet_id", kiotviet_id)
-      .select()
-      .single();
-
-    if (updateError) {
-      console.error("❌ Error updating product:", updateError);
-      throw updateError;
-    }
-
-    res.status(201).json({
-      success: true,
-      message: "Product updated successfully",
-      product: updatedProduct,
-    });
-  } catch (error) {
-    console.error("❌ Error adding product with tags:", error);
     res.status(500).json({
       success: false,
       error: error.message,
@@ -659,60 +685,95 @@ const updateImageManifest = async (req, res) => {
 
   try {
     console.log("Starting image manifest generation...");
-    console.log("Request received with method:", req?.method);
-    console.log(
-      "Auth header present:",
-      req?.headers?.authorization ? "Yes" : "No"
-    );
 
-    // Get all products with images (glt_image_updated_at is not null)
+    // Get all products from the view_product view
     const { data: products, error } = await supabase
-      .from("kv_products")
-      .select(
-        "id, kiotviet_id, glt_slug, glt_tags, glt_image_updated_at, glt_sort_order, glt_visible"
-      )
-      .order("glt_sort_order", { ascending: true, nullsLast: true })
-      .order("id", { ascending: true })
-      .not("glt_image_updated_at", "is", null);
+      .from("view_product")
+      .select("*")
+      .order("category_rank", { ascending: true })
+      .order("cost", { ascending: true });
 
     if (error) {
-      console.error("❌ Error fetching products for manifest:", error);
+      console.error("❌ Error fetching products from view_product:", error);
       throw error;
     }
 
-    console.log(`Found ${products?.length || 0} products with images`);
+    console.log(`Found ${products?.length || 0} products in view_product`);
 
-    // Build the image manifest
+    // Build the image manifest with the new structure (version 2)
     const manifest = {
+      version: 2,
       lastUpdated: new Date().toISOString(),
-      version: 1,
+      imageConfig: {
+        thumbnail: { width: 300, height: 300 },
+        zoom: { width: 1600, height: 1200 },
+      },
       totalCount: products?.length || 0,
-      images: (products || []).map((product) => {
-        const cdnBase = process.env.CDN_ENDPOINT || "";
-        const versionParam = `?v=${product.glt_image_updated_at}`;
-        const slug = product.glt_slug;
+      products: (products || [])
+        .map((product) => {
+          const cdnBase = process.env.CDN_ENDPOINT || "";
+          const versionParam = product.glt_image_updated_at
+            ? `?v=${product.glt_image_updated_at}`
+            : "";
+          const slug = product.glt_slug || "";
 
-        const thumbnailUrl = `${cdnBase}/product-images/dynamic/thumbnail/${slug}.webp${versionParam}`;
-        const zoomUrl = `${cdnBase}/product-images/dynamic/zoom/${slug}.webp${versionParam}`;
-        const enhancedUrl = `${cdnBase}/product-images/dynamic/zoom/${slug}.webp${versionParam}`;
+          // Only include image data if the product has images
+          const imageData = product.glt_image_updated_at
+            ? {
+                updatedAt: product.glt_image_updated_at,
+                visible: product.glt_visible || false,
+                sortOrder: product.glt_sort_order || null,
+                urls: {
+                  original:
+                    product.glt_gallery_original_url ||
+                    `${cdnBase}/product-images/dynamic/original/${slug}.jpg`,
+                  thumbnail:
+                    product.glt_gallery_thumbnail_url ||
+                    `${cdnBase}/product-images/dynamic/thumbnail/${slug}.webp${versionParam}`,
+                  zoom:
+                    product.glt_gallery_zoom_url ||
+                    `${cdnBase}/product-images/dynamic/zoom/${slug}.webp${versionParam}`,
+                },
+              }
+            : null;
 
-        return {
-          id: product.id,
-          kiotvietId: product.kiotviet_id,
-          slug: product.glt_slug,
-          tags: product.glt_tags,
-          updatedAt: product.glt_image_updated_at,
-          visible: product.glt_visible,
-          sortOrder: product.glt_sort_order,
-          urls: {
-            thumbnail: thumbnailUrl,
-            zoom: zoomUrl,
-            enhanced: enhancedUrl,
-          },
-        };
-      }),
-      zoomWidth: 1600,
-      zoomHeight: 1200,
+          return {
+            kiotvietId: product.kiotviet_id,
+            slug: slug,
+            fullName: product.full_name || "",
+            code: product.code || "",
+            unit: product.unit || "kg",
+            category: {
+              name: product.category_name || "",
+              rank: product.category_rank || 0,
+              color: product.glt_color_border || "#cccccc",
+              id: product.category_id || null,
+              parentId: product.parent_category_id || null,
+              parentName: product.parent_category_name || null,
+            },
+            basePrice: product.base_price || 0,
+            cost: product.cost || 0,
+            wholeP10Price: product.whole_p10_price || 0,
+            description: product.description || "",
+            barcode: product.barcode || "",
+            tags: product.tags || [],
+            attributes: product.attributes || {},
+            inventoryTracking: product.inventory_tracking || false,
+            modifiedDate: product.modified_date || new Date().toISOString(),
+            createdDate: product.created_date || null,
+            isActive: product.is_active !== false,
+            image: imageData,
+            customFields: {
+              gltVisible: product.glt_visible || false,
+              gltSortOrder: product.glt_sort_order || null,
+              gltFeatured: product.glt_featured || false,
+              gltNotes: product.glt_notes || "",
+              wholesaleEligible: product.wholesale_eligible || false,
+              productType: product.product_type || "standard",
+            },
+          };
+        })
+        .filter((product) => product.slug), // Only include products with a slug
     };
 
     // Save manifest to a temp file
@@ -727,15 +788,12 @@ const updateImageManifest = async (req, res) => {
     console.log(`Manifest file created at ${manifestPath}`);
     console.log(`File size: ${fs.statSync(manifestPath).size} bytes`);
 
-    // Upload to S3 using putObject which our tests confirm works
+    // Upload to S3
     const manifestKey = "product-images/manifest.json";
     let manifestUrl = "";
 
     try {
       console.log(`Uploading manifest to S3...`);
-      console.log(`S3 Endpoint: ${process.env.S3_ENDPOINT}`);
-      console.log(`S3 Bucket: ${process.env.S3_BUCKET_NAME}`);
-      console.log(`S3 Key: ${manifestKey}`);
 
       // Use the S3 client from our utils
       const { s3 } = require("../utils/s3");
@@ -744,7 +802,6 @@ const updateImageManifest = async (req, res) => {
       const AWS = require("aws-sdk");
       AWS.config.httpOptions = { timeout: 15000 };
 
-      console.log("Preparing putObject params...");
       const putParams = {
         Bucket: process.env.S3_BUCKET_NAME,
         Key: manifestKey,
@@ -753,14 +810,7 @@ const updateImageManifest = async (req, res) => {
         CacheControl: "max-age=60",
       };
 
-      console.log("Executing putObject...");
       const putResult = await s3.putObject(putParams).promise();
-
-      console.log("Upload completed successfully");
-      console.log(`Upload result:`, JSON.stringify(putResult));
-      console.log(
-        `Manifest uploaded to S3 bucket: ${process.env.S3_BUCKET_NAME}, key: ${manifestKey}`
-      );
 
       // Create manifest URL only after successful upload
       manifestUrl = process.env.CDN_ENDPOINT
@@ -772,37 +822,6 @@ const updateImageManifest = async (req, res) => {
       console.log(`✅ Image manifest updated at: ${manifestUrl}`);
     } catch (uploadError) {
       console.error("❌ Error uploading manifest to S3:", uploadError);
-
-      // Log more details about the error
-      console.error("Error details:", uploadError.message);
-      console.error("Error stack:", uploadError.stack);
-      if (uploadError.code) {
-        console.error("Error code:", uploadError.code);
-      }
-      if (uploadError.statusCode) {
-        console.error("Status code:", uploadError.statusCode);
-      }
-      if (uploadError.region) {
-        console.error("Region:", uploadError.region);
-      }
-
-      // Print S3 config for debugging (excluding secrets)
-      console.log("S3 Configuration:");
-      console.log(`  Endpoint: ${process.env.S3_ENDPOINT}`);
-      console.log(`  Bucket: ${process.env.S3_BUCKET_NAME}`);
-      console.log(`  Region: ${process.env.S3_REGION || "auto"}`);
-      console.log(
-        `  Access Key ID: ${process.env.S3_ACCESS_KEY ? "******" : "Not set"}`
-      );
-
-      // Clean up before throwing error
-      try {
-        if (fs.existsSync(manifestPath)) {
-          fs.unlinkSync(manifestPath);
-        }
-      } catch (cleanupError) {
-        console.error("Error during cleanup:", cleanupError);
-      }
 
       // Throw the error but first check if we need to respond
       if (res && !res.headersSent) {
@@ -834,7 +853,6 @@ const updateImageManifest = async (req, res) => {
     }
 
     if (res && !res.headersSent) {
-      console.log("Sending success response");
       return res.status(200).json({
         success: true,
         message: "Image manifest updated successfully",
@@ -853,7 +871,6 @@ const updateImageManifest = async (req, res) => {
     }
 
     if (res && !res.headersSent) {
-      console.log("Sending error response");
       return res.status(500).json({
         success: false,
         error: error.message,
@@ -864,96 +881,230 @@ const updateImageManifest = async (req, res) => {
   }
 };
 
-// Automatically update the manifest file after successful image upload
-const handleUploadAndUpdateManifest = async (req, res) => {
-  try {
-    // First handle the upload normally
-    await handleUpload(req, res);
-
-    // If we reach here, the upload was successful and response has been sent
-    // Update the manifest in the background
-    try {
-      await updateImageManifest();
-    } catch (manifestError) {
-      console.error("❌ Background manifest update failed:", manifestError);
-    }
-  } catch (error) {
-    // If the upload failed, just pass the error through
-    console.error("❌ Error in upload process:", error);
-    if (!res.headersSent) {
-      res.status(500).json({ success: false, error: error.message });
-    }
-  }
-};
-
 /**
- * Process enhanced zoom image with text overlay, logo, and border
- * @param {string} zoomPath - Path to the zoom image
- * @param {string} code - Product code
- * @param {number} productId - Product ID
- * @param {number} categoryId - Category ID
- * @param {string} tempDir - Temporary directory path
+ * Generate price table images for all active categories
+ * This controller uses our standalone script to generate images one by one
  */
-async function processEnhancedZoomImage(
-  zoomPath,
-  code,
-  productId,
-  categoryId,
-  tempDir
-) {
+async function generatePriceTableImages(req, res) {
+  const { category_id } = req.params; // For single category generation
+  const specificCategoryId = req.query.category_id; // For query param based single category
+
   try {
-    // Get category color border if available
-    let borderColor = "#ffb96e"; // Default color
-    let categoryName = "Không xác định";
-
-    // Get category details
-    const { data: category } = await supabase
-      .from("kv_product_categories")
-      .select("category_name, glt_color_border")
-      .eq("category_id", categoryId)
-      .single();
-
-    if (category) {
-      categoryName = category.category_name || categoryName;
-      borderColor = category.glt_color_border || borderColor;
-    }
-
-    // Create enhanced zoom image path
-    const enhancedZoomPath = path.join(tempDir, `${code}-enhanced-zoom.webp`);
-
-    // Process the enhanced zoom image
-    await sharp(zoomPath)
-      .resize(1200, null, { withoutEnlargement: true })
-      .webp({ quality: 85 })
-      .toFile(enhancedZoomPath);
-
-    // Upload enhanced zoom version to S3
-    const enhancedZoomKey = `product-images/dynamic/zoom/${code}-enhanced.webp`;
-    await uploadToS3(
-      enhancedZoomPath,
-      `${code}-enhanced.webp`,
-      enhancedZoomKey
+    console.log(
+      `🚀 Starting price table image generation... Category ID: ${
+        category_id || specificCategoryId || "All"
+      }`
     );
 
-    // Clean up temporary file
-    if (fs.existsSync(enhancedZoomPath)) {
-      fs.unlinkSync(enhancedZoomPath);
+    let categoriesToProcess = [];
+
+    if (category_id || specificCategoryId) {
+      const catId = category_id || specificCategoryId;
+      const { data: category, error } = await supabase
+        .from("kv_product_categories")
+        .select("category_id, category_name, glt_is_active")
+        .eq("category_id", catId)
+        .single();
+
+      if (error || !category) {
+        console.error(`Error fetching category ${catId}:`, error);
+        return res
+          .status(404)
+          .json({ message: `Category ${catId} not found.` });
+      }
+      if (category.glt_is_active) {
+        categoriesToProcess.push(category);
+      }
+    } else {
+      const { data: activeCategories, error } = await supabase
+        .from("kv_product_categories")
+        .select("category_id, category_name, glt_is_active")
+        .eq("glt_is_active", true)
+        .order("rank");
+
+      if (error) {
+        console.error("Error fetching active categories:", error);
+        return res
+          .status(500)
+          .json({ message: "Failed to fetch active categories." });
+      }
+      categoriesToProcess = activeCategories;
     }
 
-    return enhancedZoomPath;
+    if (categoriesToProcess.length === 0) {
+      return res
+        .status(200)
+        .json({ message: "No active categories to process." });
+    }
+
+    const results = [];
+    const PORT = process.env.PORT || 3001;
+
+    for (const category of categoriesToProcess) {
+      // Use category_id for filename and .jpeg extension
+      const retailImageName = `price-table-retail-${category.category_id}.jpeg`;
+      const wholeImageName = `price-table-whole-${category.category_id}.jpeg`;
+
+      // Generate Retail Price Table Image
+      const retailUrl = `http://localhost:${PORT}/print/price-table/retail?background=true&category=${category.category_id}`;
+      try {
+        await capturePriceTableScreenshot(
+          retailUrl,
+          category.category_name, // Still use category_name for logging
+          retailImageName,
+          "retail"
+        );
+        results.push({
+          category: category.category_name,
+          categoryId: category.category_id,
+          type: "retail",
+          imageName: retailImageName,
+          status: "success",
+        });
+      } catch (error) {
+        console.error(
+          `Error generating retail price table for ${category.category_name}:`,
+          error
+        );
+        results.push({
+          category: category.category_name,
+          categoryId: category.category_id,
+          type: "retail",
+          imageName: retailImageName,
+          status: "failed",
+          error: error.message,
+        });
+      }
+
+      // Generate Wholesale Price Table Image
+      const wholeUrl = `http://localhost:${PORT}/print/price-table/whole?category_name=${encodeURIComponent(
+        category.category_name
+      )}`;
+      try {
+        await capturePriceTableScreenshot(
+          wholeUrl,
+          category.category_name, // Still use category_name for logging
+          wholeImageName,
+          "wholesale"
+        );
+        results.push({
+          category: category.category_name,
+          categoryId: category.category_id,
+          type: "wholesale",
+          imageName: wholeImageName,
+          status: "success",
+        });
+      } catch (error) {
+        console.error(
+          `Error generating wholesale price table for ${category.category_name}:`,
+          error
+        );
+        results.push({
+          category: category.category_name,
+          categoryId: category.category_id,
+          type: "wholesale",
+          imageName: wholeImageName,
+          status: "failed",
+          error: error.message,
+        });
+      }
+    }
+
+    console.log("✅ Price table image generation completed.");
+    // Update manifest in the background
+    updateImageManifest().catch((err) => {
+      console.error(
+        "❌ Background manifest update failed after price table generation:",
+        err
+      );
+    });
+    return res.status(200).json({
+      message: "Price table image generation process completed.",
+      results,
+    });
   } catch (error) {
-    console.error("Error in processEnhancedZoomImage:", error);
+    console.error("Error generating price table images:", error);
+    res.status(500).json({ message: "Error generating price table images" });
+  }
+}
+
+/**
+ * Capture screenshot of the price table HTML page
+ * @param {string} url - URL of the price table HTML page
+ * @param {string} categoryName - Name of the category for logging
+ * @param {string} outputImageName - Desired output name for the image (e.g., price-table-retail-123.jpeg)
+ * @param {string} type - Type of price table (e.g., "retail", "wholesale")
+ */
+async function capturePriceTableScreenshot(
+  url,
+  categoryName,
+  outputImageName,
+  type
+) {
+  let browser = null;
+  try {
+    console.log(
+      `📸 Capturing ${type} price table for ${categoryName} from ${url} as ${outputImageName}`
+    );
+    browser = await puppeteer.launch({
+      headless: "new", // Opt-in to the new Headless mode
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage", // Crucial for Docker environments
+        "--font-render-hinting=none", // May improve font rendering consistency
+      ],
+      defaultViewport: { width: 1200, height: 1600 }, // Set viewport size
+    });
+    const page = await browser.newPage();
+
+    await page.goto(url, { waitUntil: "networkidle0", timeout: 30000 });
+
+    const imagePath = path.join(
+      __dirname,
+      "../../uploads/temp",
+      outputImageName // outputImageName now includes .jpeg
+    );
+
+    const tempDir = path.dirname(imagePath);
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    await page.screenshot({
+      path: imagePath,
+      fullPage: false, // Capture viewport
+      type: "jpeg",
+      quality: 85, // JPEG quality
+    });
+    console.log(`🖼️ Screenshot saved to ${imagePath}`);
+
+    const s3Key = `price-tables/${outputImageName}`; // outputImageName is already correct
+    await uploadToS3(imagePath, outputImageName, s3Key, "image/jpeg"); // Specify content type for JPEG
+    console.log(`☁️ Screenshot ${outputImageName} uploaded to S3 at ${s3Key}`);
+
+    if (fs.existsSync(imagePath)) {
+      fs.unlinkSync(imagePath);
+      console.log(`🗑️ Deleted temporary screenshot: ${imagePath}`);
+    }
+  } catch (error) {
+    console.error(
+      `❌ Error capturing ${type} price table for ${categoryName} from ${url}:`,
+      error
+    );
     throw error;
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
   }
 }
 
 module.exports = {
   handleUpload,
   getProductImages,
-  addProductWithTags,
   updateImageManifest,
-  handleUploadAndUpdateManifest,
-  generateProductSlug,
-  getShortPriceString,
-  processEnhancedZoomImage,
+  reprocessProductImages,
+  processAndUploadImages,
+  generatePriceTableImages,
 };

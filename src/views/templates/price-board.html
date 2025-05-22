@@ -1,98 +1,104 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <meta charset="UTF-8">
-  <title>In A6 ngang</title>
-  <!-- Nunito Google Fonts -->
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;900&display=swap" rel="stylesheet">
-  <style>
-    @page {
-      size: 148mm 105mm;
-      margin: 0;
-    }
-    html, body {
-      width: 148mm;
-      height: 105mm;
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-      background: #fff;
-      overflow: hidden;
-      font-family: 'Nunito', Arial, sans-serif;
-    }
-    body {
-      display: flex;
-      align-items: stretch;
-      justify-content: stretch;
-      width: 148mm;
-      height: 105mm;
-    }
-    .container {
-      width: 148mm;
-      height: 105mm;
-      min-width: 148mm;
-      min-height: 105mm;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      box-sizing: border-box;
-    }
-    .title {
-      text-align: center;
-      font-size: 15pt;
-      font-weight: 900; /* Nunito Black */
-      font-family: 'Nunito', Arial, sans-serif;
-    }
-    .price {
-      width: 100%;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      flex: 1;
-    }
-    .price-label {
-      display: inline-block;
-      padding: 32px 60px;
-      border: 8px solid #222;
-      border-radius: 30px;
-      background: #fff;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.07);
-      text-align: center;
-      font-weight: 900;
-      font-family: 'Nunito', Arial, sans-serif;
-      white-space: nowrap;
-      font-size: 100pt;
-      max-width: 100%;
-      overflow: hidden;
-      box-sizing: border-box;
-    }
-    .date {
-      text-align: right;
-      font-size: 15pt;
-      font-family: 'Nunito', Arial, sans-serif;
-    }
-    @media print {
-      html, body, .container {
-        width: 148mm !important;
-        height: 105mm !important;
-        min-width: 148mm !important;
-        min-height: 105mm !important;
-        max-width: 148mm !important;
-        max-height: 105mm !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        box-sizing: border-box !important;
+  <head>
+    <meta charset="UTF-8" />
+    <title>In A6 ngang</title>
+    <!-- Nunito Google Fonts -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      @page {
+        size: 148mm 105mm;
+        margin: 0;
       }
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="title">{{productTitle}}</div>
-    <div class="price">
-      <span class="price-label" id="priceLabel">{{formatPrice price}}</span>
+      html,
+      body {
+        width: 148mm;
+        height: 105mm;
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        background: #fff;
+        overflow: hidden;
+        font-family: "Nunito", Arial, sans-serif;
+      }
+      body {
+        display: flex;
+        align-items: stretch;
+        justify-content: stretch;
+        width: 148mm;
+        height: 105mm;
+      }
+      .container {
+        width: 148mm;
+        height: 105mm;
+        min-width: 148mm;
+        min-height: 105mm;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        box-sizing: border-box;
+      }
+      .title {
+        text-align: center;
+        font-size: 15pt;
+        font-weight: 900; /* Nunito Black */
+        font-family: "Nunito", Arial, sans-serif;
+      }
+      .price {
+        width: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        flex: 1;
+      }
+      .price-label {
+        display: inline-block;
+        padding: 32px 60px;
+        border: 8px solid #222;
+        border-radius: 30px;
+        background: #fff;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.07);
+        text-align: center;
+        font-weight: 900;
+        font-family: "Nunito", Arial, sans-serif;
+        white-space: nowrap;
+        font-size: 100pt;
+        max-width: 100%;
+        overflow: hidden;
+        box-sizing: border-box;
+      }
+      .date {
+        text-align: right;
+        font-size: 15pt;
+        font-family: "Nunito", Arial, sans-serif;
+      }
+      @media print {
+        html,
+        body,
+        .container {
+          width: 148mm !important;
+          height: 105mm !important;
+          min-width: 148mm !important;
+          min-height: 105mm !important;
+          max-width: 148mm !important;
+          max-height: 105mm !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          box-sizing: border-box !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="title">{{productTitle}}</div>
+      <div class="price">
+        <span class="price-label" id="priceLabel">{{formatPrice price}}</span>
+      </div>
+      <div class="date">{{currentDateString}}</div>
     </div>
-    <div class="date">{{currentDateString}}</div>
-  </div>
-</body>
+  </body>
 </html>

@@ -41,3 +41,4 @@ tmp/
 # Deployment-specific
 .github/workflows/build.yml
 /cursorai-instruction
+/src/output

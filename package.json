@@ -17,6 +17,10 @@
     "media:test-manifest": "node src/scripts/test-manifest.js",
     "media:test-endpoint": "node src/scripts/test-media-endpoint.js",
     "media:test-direct": "node src/scripts/test-media-direct.js",
+    "test:price-table-puppeteer": "node src/scripts/tests/price-table-puppeteer.js",
+    "test:price-table-auto": "node src/scripts/tests/price-table-puppeteer.js --start-server",
+    "test:price-table-category": "node src/scripts/tests/price-table-puppeteer.js --category=1",
+    "test:list-categories": "node src/scripts/tests/list-categories.js",
     "kv:sync:products": "curl -X POST http://localhost:3001/kiotviet/clone/products -u username123:password123456",
     "kv:sync:customers": "curl -X POST http://localhost:3001/kiotviet/clone/customers -u username123:password123456",
     "kv:sync:invoices": "curl -X POST http://localhost:3001/kiotviet/clone/invoices/$(date +%Y)/$(date +%m) -u username123:password123456",
@@ -32,6 +36,7 @@
     "cors": "^2.8.5",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
+    "dayjs": "^1.11.13",
     "discord.js": "^14.18.0",
     "dotenv": "^16.5.0",
     "express": "^4.17.1",
@@ -39,7 +44,9 @@
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.2",
     "node-cron": "^3.0.3",
+    "node-fetch": "^3.3.2",
     "pg": "^8.14.1",
+    "puppeteer": "^19.7.5",
     "sharp": "^0.34.1"
   },
   "devDependencies": {
