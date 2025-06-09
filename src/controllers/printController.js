@@ -598,6 +598,157 @@ exports.getPrintWholePriceTable = async (req, res) => {
   try {
     console.log("📦 Generating wholesale price table...");
 
+    // Get background parameter (true/false), default is false for clean view
+    const {
+      background = "false",
+      category_name: categoryQuery,
+      page = "1",
+    } = req.query;
+    const useBackground = background === "true";
+    const pageNum = parseInt(page) || 1;
+
+    console.log(
+      `📄 Generating wholesale price table with background: ${useBackground}, page: ${pageNum}`
+    );
+
+    // For background mode, use the old card-style layout
+    if (useBackground) {
+      return generateWholesalePriceTableWithBackground(req, res);
+    }
+
+    // For standard mode (clean view), show all products without categories
+    console.log(
+      `📦 Generating clean wholesale price table for page ${pageNum}...`
+    );
+
+    let query = supabase
+      .from("view_product")
+      .select(
+        "full_name, description, cost, base_price, category_name, category_rank"
+      )
+      .not("cost", "is", null) // Ensure cost is not null for wholesale price calculation
+      .eq("glt_visible", true); // Only visible products
+
+    // Apply category filter if provided
+    if (categoryQuery) {
+      console.log(`Filtering by category: ${categoryQuery}`);
+      query = query.eq("category_name", categoryQuery);
+    }
+
+    const { data: productsData, error: productsError } = await query.order(
+      "category_rank, cost"
+    );
+
+    if (productsError) {
+      console.error(
+        "Error fetching products for wholesale table:",
+        productsError
+      );
+      return res.status(500).send("Error fetching product data");
+    }
+
+    if (!productsData || productsData.length === 0) {
+      return res
+        .status(404)
+        .send("No products found for wholesale price table.");
+    }
+
+    // Calculate wholesale price (cost + 800) and prepare products for template
+    const products = productsData.map((p) => ({
+      ...p,
+      wholesale_price: p.cost + 800,
+      description: p.description || "Mô tả sản phẩm", // Default description if empty
+    }));
+
+    console.log(
+      `✅ Found ${products.length} products for wholesale price table`
+    );
+
+    // Group products by category
+    const categoryMap = new Map();
+    products.forEach((product) => {
+      if (!categoryMap.has(product.category_name)) {
+        categoryMap.set(product.category_name, {
+          name: product.category_name,
+          rank: product.category_rank,
+          products: [],
+        });
+      }
+      categoryMap.get(product.category_name).products.push({
+        full_name: product.full_name,
+        description: product.description,
+        wholesale_price: product.wholesale_price,
+      });
+    });
+
+    // Sort products by cost within each category
+    categoryMap.forEach((category) => {
+      category.products.sort(
+        (a, b) => (a.wholesale_price || 0) - (b.wholesale_price || 0)
+      );
+    });
+
+    const allProductCategories = Array.from(categoryMap.values())
+      .filter((category) => category.products.length > 0)
+      .sort((a, b) => a.rank - b.rank); // Sort by category rank
+
+    // Split categories into 2 pages
+    const totalCategories = allProductCategories.length;
+    const categoriesPerPage = Math.ceil(totalCategories / 2);
+
+    let productCategories = [];
+    if (pageNum === 1) {
+      productCategories = allProductCategories.slice(0, categoriesPerPage);
+    } else if (pageNum === 2) {
+      productCategories = allProductCategories.slice(categoriesPerPage);
+    } else {
+      // Default to page 1 if invalid page number
+      productCategories = allProductCategories.slice(0, categoriesPerPage);
+    }
+
+    console.log(
+      `📄 Page ${pageNum}: Showing ${productCategories.length} categories out of ${totalCategories} total`
+    );
+
+    // Get current date in Vietnamese format
+    const now = new Date();
+    const currentDate = now.toLocaleDateString("vi-VN", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+
+    // Read template file - using the new clean wholesale template
+    const templatePath = path.join(
+      __dirname,
+      "../views/templates/price-table-whole.html"
+    );
+    const templateContent = await fs.readFile(templatePath, "utf-8");
+
+    // Compile template
+    const template = Handlebars.compile(templateContent);
+
+    // Render template with data
+    const html = template({
+      pageTitle: `BẢNG GIÁ SỈ - TRANG ${pageNum}`,
+      currentDate,
+      categories: productCategories,
+    });
+
+    res.setHeader("Content-Type", "text/html");
+    res.send(html);
+  } catch (error) {
+    console.error("Error generating wholesale price table:", error);
+    res.status(500).send("Error generating wholesale price table");
+  }
+};
+
+/**
+ * Generate wholesale price table with background (card-style layout)
+ * This is the original implementation for background mode
+ */
+const generateWholesalePriceTableWithBackground = async (req, res) => {
+  try {
     const { category_name: categoryQuery } = req.query;
 
     let query = supabase
@@ -662,17 +813,6 @@ exports.getPrintWholePriceTable = async (req, res) => {
       cardCategoryName = categoryQuery; // Use the queried category name if multiple match (should not happen with eq filter)
     }
 
-    // If a specific category was queried, we only need that category's products
-    // Otherwise, we will pass all fetched (and grouped) products to the template
-    // The template itself iterates through products, so we just need one list of products for the selected category
-    // or a flat list if no specific category is chosen for the header and multiple categories are displayed.
-
-    // For this template, we expect a single list of products for the given categoryName in the header.
-    // If there are multiple categories, we should probably render multiple cards or have a different template structure.
-    // For now, if multiple categories are fetched (no categoryQuery or a broad one),
-    // we'll just use the first category's products for the display to match the template structure.
-    // Or, better, if a category is specified, use that. If not, and multiple exist, pick the first by rank.
-
     let displayProducts = [];
     if (categoryQuery && productsByCategory[categoryQuery]) {
       displayProducts = productsByCategory[categoryQuery].products;
@@ -706,7 +846,12 @@ exports.getPrintWholePriceTable = async (req, res) => {
     res.setHeader("Content-Type", "text/html");
     res.send(html);
   } catch (error) {
-    console.error("Error generating wholesale price table:", error);
-    res.status(500).send("Error generating wholesale price table");
+    console.error(
+      "Error generating wholesale price table with background:",
+      error
+    );
+    res
+      .status(500)
+      .send("Error generating wholesale price table with background");
   }
 };

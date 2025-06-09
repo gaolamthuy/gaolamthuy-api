@@ -6,6 +6,7 @@ const { registerFonts } = require("../assets/fonts");
 const { uploadToS3 } = require("../utils/s3");
 const { createClient } = require("@supabase/supabase-js");
 const puppeteer = require("puppeteer");
+const priceTableService = require("../services/priceTableService");
 
 // Register all fonts for canvas
 registerFonts();
@@ -882,221 +883,123 @@ const updateImageManifest = async (req, res) => {
 };
 
 /**
- * Generate price table images for all active categories
- * This controller uses our standalone script to generate images one by one
+ * Generate price table images for all active categories (HTTP endpoint)
+ * This controller wraps the core service function for HTTP requests
  */
 async function generatePriceTableImages(req, res) {
-  const { category_id } = req.params; // For single category generation
-  const specificCategoryId = req.query.category_id; // For query param based single category
-
   try {
-    console.log(
-      `🚀 Starting price table image generation... Category ID: ${
-        category_id || specificCategoryId || "All"
-      }`
-    );
+    const result = await priceTableService.generatePriceTableImagesCore();
 
-    let categoriesToProcess = [];
-
-    if (category_id || specificCategoryId) {
-      const catId = category_id || specificCategoryId;
-      const { data: category, error } = await supabase
-        .from("kv_product_categories")
-        .select("category_id, category_name, glt_is_active")
-        .eq("category_id", catId)
-        .single();
-
-      if (error || !category) {
-        console.error(`Error fetching category ${catId}:`, error);
-        return res
-          .status(404)
-          .json({ message: `Category ${catId} not found.` });
-      }
-      if (category.glt_is_active) {
-        categoriesToProcess.push(category);
-      }
-    } else {
-      const { data: activeCategories, error } = await supabase
-        .from("kv_product_categories")
-        .select("category_id, category_name, glt_is_active")
-        .eq("glt_is_active", true)
-        .order("rank");
-
-      if (error) {
-        console.error("Error fetching active categories:", error);
-        return res
-          .status(500)
-          .json({ message: "Failed to fetch active categories." });
-      }
-      categoriesToProcess = activeCategories;
-    }
-
-    if (categoriesToProcess.length === 0) {
-      return res
-        .status(200)
-        .json({ message: "No active categories to process." });
-    }
-
-    const results = [];
-    const PORT = process.env.PORT || 3001;
-
-    for (const category of categoriesToProcess) {
-      // Use category_id for filename and .jpeg extension
-      const retailImageName = `price-table-retail-${category.category_id}.jpeg`;
-      const wholeImageName = `price-table-whole-${category.category_id}.jpeg`;
-
-      // Generate Retail Price Table Image
-      const retailUrl = `http://localhost:${PORT}/print/price-table/retail?background=true&category=${category.category_id}`;
-      try {
-        await capturePriceTableScreenshot(
-          retailUrl,
-          category.category_name, // Still use category_name for logging
-          retailImageName,
-          "retail"
-        );
-        results.push({
-          category: category.category_name,
-          categoryId: category.category_id,
-          type: "retail",
-          imageName: retailImageName,
-          status: "success",
-        });
-      } catch (error) {
+    // Update manifest in the background if generation was successful
+    if (result.success && !result.skipped) {
+      updateImageManifest().catch((err) => {
         console.error(
-          `Error generating retail price table for ${category.category_name}:`,
-          error
+          "❌ Background manifest update failed after price table generation:",
+          err
         );
-        results.push({
-          category: category.category_name,
-          categoryId: category.category_id,
-          type: "retail",
-          imageName: retailImageName,
-          status: "failed",
-          error: error.message,
-        });
-      }
-
-      // Generate Wholesale Price Table Image
-      const wholeUrl = `http://localhost:${PORT}/print/price-table/whole?category_name=${encodeURIComponent(
-        category.category_name
-      )}`;
-      try {
-        await capturePriceTableScreenshot(
-          wholeUrl,
-          category.category_name, // Still use category_name for logging
-          wholeImageName,
-          "wholesale"
-        );
-        results.push({
-          category: category.category_name,
-          categoryId: category.category_id,
-          type: "wholesale",
-          imageName: wholeImageName,
-          status: "success",
-        });
-      } catch (error) {
-        console.error(
-          `Error generating wholesale price table for ${category.category_name}:`,
-          error
-        );
-        results.push({
-          category: category.category_name,
-          categoryId: category.category_id,
-          type: "wholesale",
-          imageName: wholeImageName,
-          status: "failed",
-          error: error.message,
-        });
-      }
+      });
     }
 
-    console.log("✅ Price table image generation completed.");
-    // Update manifest in the background
-    updateImageManifest().catch((err) => {
-      console.error(
-        "❌ Background manifest update failed after price table generation:",
-        err
-      );
-    });
-    return res.status(200).json({
-      message: "Price table image generation process completed.",
-      results,
-    });
+    // Determine HTTP status code based on result
+    let statusCode = 200;
+    if (result.skipped) {
+      statusCode = 409; // Conflict - already in progress
+    } else if (!result.success) {
+      statusCode = 500;
+    }
+
+    return res.status(statusCode).json(result);
   } catch (error) {
-    console.error("Error generating price table images:", error);
-    res.status(500).json({ message: "Error generating price table images" });
+    console.error(
+      "❌ Error in generatePriceTableImages HTTP endpoint:",
+      error.message
+    );
+    return res.status(500).json({
+      success: false,
+      message: "Error generating price table images",
+      error: error.message,
+    });
   }
 }
 
 /**
- * Capture screenshot of the price table HTML page
- * @param {string} url - URL of the price table HTML page
- * @param {string} categoryName - Name of the category for logging
- * @param {string} outputImageName - Desired output name for the image (e.g., price-table-retail-123.jpeg)
- * @param {string} type - Type of price table (e.g., "retail", "wholesale")
+ * Generate retail price table images for all active categories
+ * Uses the card-style layout (/print/price-table/retail?background=true&category=${categoryId})
  */
-async function capturePriceTableScreenshot(
-  url,
-  categoryName,
-  outputImageName,
-  type
-) {
-  let browser = null;
+async function generateRetailPriceTableImages(req, res) {
   try {
-    console.log(
-      `📸 Capturing ${type} price table for ${categoryName} from ${url} as ${outputImageName}`
-    );
-    browser = await puppeteer.launch({
-      headless: "new", // Opt-in to the new Headless mode
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage", // Crucial for Docker environments
-        "--font-render-hinting=none", // May improve font rendering consistency
-      ],
-      defaultViewport: { width: 1200, height: 1600 }, // Set viewport size
-    });
-    const page = await browser.newPage();
+    const result = await priceTableService.generateRetailPriceTableImagesCore();
 
-    await page.goto(url, { waitUntil: "networkidle0", timeout: 30000 });
-
-    const imagePath = path.join(
-      __dirname,
-      "../../uploads/temp",
-      outputImageName // outputImageName now includes .jpeg
-    );
-
-    const tempDir = path.dirname(imagePath);
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
+    // Update manifest in the background if generation was successful
+    if (result.success && !result.skipped) {
+      updateImageManifest().catch((err) => {
+        console.error(
+          "❌ Background manifest update failed after retail price table generation:",
+          err
+        );
+      });
     }
 
-    await page.screenshot({
-      path: imagePath,
-      fullPage: false, // Capture viewport
-      type: "jpeg",
-      quality: 85, // JPEG quality
-    });
-    console.log(`🖼️ Screenshot saved to ${imagePath}`);
-
-    const s3Key = `price-tables/${outputImageName}`; // outputImageName is already correct
-    await uploadToS3(imagePath, outputImageName, s3Key, "image/jpeg"); // Specify content type for JPEG
-    console.log(`☁️ Screenshot ${outputImageName} uploaded to S3 at ${s3Key}`);
-
-    if (fs.existsSync(imagePath)) {
-      fs.unlinkSync(imagePath);
-      console.log(`🗑️ Deleted temporary screenshot: ${imagePath}`);
+    // Determine HTTP status code based on result
+    let statusCode = 200;
+    if (result.skipped) {
+      statusCode = 409; // Conflict - already in progress
+    } else if (!result.success) {
+      statusCode = 500;
     }
+
+    return res.status(statusCode).json(result);
   } catch (error) {
     console.error(
-      `❌ Error capturing ${type} price table for ${categoryName} from ${url}:`,
-      error
+      "❌ Error in generateRetailPriceTableImages HTTP endpoint:",
+      error.message
     );
-    throw error;
-  } finally {
-    if (browser) {
-      await browser.close();
+    return res.status(500).json({
+      success: false,
+      message: "Error generating retail price table images",
+      error: error.message,
+    });
+  }
+}
+
+/**
+ * Generate wholesale price table images
+ * Uses the clean layout (/print/price-table/whole) to capture full page
+ */
+async function generateWholesalePriceTableImages(req, res) {
+  try {
+    const result =
+      await priceTableService.generateWholesalePriceTableImagesCore();
+
+    // Update manifest in the background if generation was successful
+    if (result.success && !result.skipped) {
+      updateImageManifest().catch((err) => {
+        console.error(
+          "❌ Background manifest update failed after wholesale price table generation:",
+          err
+        );
+      });
     }
+
+    // Determine HTTP status code based on result
+    let statusCode = 200;
+    if (result.skipped) {
+      statusCode = 409; // Conflict - already in progress
+    } else if (!result.success) {
+      statusCode = 500;
+    }
+
+    return res.status(statusCode).json(result);
+  } catch (error) {
+    console.error(
+      "❌ Error in generateWholesalePriceTableImages HTTP endpoint:",
+      error.message
+    );
+    return res.status(500).json({
+      success: false,
+      message: "Error generating wholesale price table images",
+      error: error.message,
+    });
   }
 }
 
@@ -1107,4 +1010,6 @@ module.exports = {
   reprocessProductImages,
   processAndUploadImages,
   generatePriceTableImages,
+  generateRetailPriceTableImages,
+  generateWholesalePriceTableImages,
 };
