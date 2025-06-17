@@ -6,7 +6,7 @@ const { registerFonts } = require("../assets/fonts");
 const { uploadToS3 } = require("../utils/s3");
 const { createClient } = require("@supabase/supabase-js");
 const puppeteer = require("puppeteer");
-const priceTableService = require("../services/priceTableService");
+// Note: priceTableService removed - image generation handled by external service
 
 // Register all fonts for canvas
 registerFonts();
@@ -882,126 +882,8 @@ const updateImageManifest = async (req, res) => {
   }
 };
 
-/**
- * Generate price table images for all active categories (HTTP endpoint)
- * This controller wraps the core service function for HTTP requests
- */
-async function generatePriceTableImages(req, res) {
-  try {
-    const result = await priceTableService.generatePriceTableImagesCore();
-
-    // Update manifest in the background if generation was successful
-    if (result.success && !result.skipped) {
-      updateImageManifest().catch((err) => {
-        console.error(
-          "❌ Background manifest update failed after price table generation:",
-          err
-        );
-      });
-    }
-
-    // Determine HTTP status code based on result
-    let statusCode = 200;
-    if (result.skipped) {
-      statusCode = 409; // Conflict - already in progress
-    } else if (!result.success) {
-      statusCode = 500;
-    }
-
-    return res.status(statusCode).json(result);
-  } catch (error) {
-    console.error(
-      "❌ Error in generatePriceTableImages HTTP endpoint:",
-      error.message
-    );
-    return res.status(500).json({
-      success: false,
-      message: "Error generating price table images",
-      error: error.message,
-    });
-  }
-}
-
-/**
- * Generate retail price table images for all active categories
- * Uses the card-style layout (/print/price-table/retail?background=true&category=${categoryId})
- */
-async function generateRetailPriceTableImages(req, res) {
-  try {
-    const result = await priceTableService.generateRetailPriceTableImagesCore();
-
-    // Update manifest in the background if generation was successful
-    if (result.success && !result.skipped) {
-      updateImageManifest().catch((err) => {
-        console.error(
-          "❌ Background manifest update failed after retail price table generation:",
-          err
-        );
-      });
-    }
-
-    // Determine HTTP status code based on result
-    let statusCode = 200;
-    if (result.skipped) {
-      statusCode = 409; // Conflict - already in progress
-    } else if (!result.success) {
-      statusCode = 500;
-    }
-
-    return res.status(statusCode).json(result);
-  } catch (error) {
-    console.error(
-      "❌ Error in generateRetailPriceTableImages HTTP endpoint:",
-      error.message
-    );
-    return res.status(500).json({
-      success: false,
-      message: "Error generating retail price table images",
-      error: error.message,
-    });
-  }
-}
-
-/**
- * Generate wholesale price table images
- * Uses the clean layout (/print/price-table/whole) to capture full page
- */
-async function generateWholesalePriceTableImages(req, res) {
-  try {
-    const result =
-      await priceTableService.generateWholesalePriceTableImagesCore();
-
-    // Update manifest in the background if generation was successful
-    if (result.success && !result.skipped) {
-      updateImageManifest().catch((err) => {
-        console.error(
-          "❌ Background manifest update failed after wholesale price table generation:",
-          err
-        );
-      });
-    }
-
-    // Determine HTTP status code based on result
-    let statusCode = 200;
-    if (result.skipped) {
-      statusCode = 409; // Conflict - already in progress
-    } else if (!result.success) {
-      statusCode = 500;
-    }
-
-    return res.status(statusCode).json(result);
-  } catch (error) {
-    console.error(
-      "❌ Error in generateWholesalePriceTableImages HTTP endpoint:",
-      error.message
-    );
-    return res.status(500).json({
-      success: false,
-      message: "Error generating wholesale price table images",
-      error: error.message,
-    });
-  }
-}
+// Note: Price table image generation functions removed
+// Image generation is now handled by external service
 
 module.exports = {
   handleUpload,
@@ -1009,7 +891,4 @@ module.exports = {
   updateImageManifest,
   reprocessProductImages,
   processAndUploadImages,
-  generatePriceTableImages,
-  generateRetailPriceTableImages,
-  generateWholesalePriceTableImages,
 };

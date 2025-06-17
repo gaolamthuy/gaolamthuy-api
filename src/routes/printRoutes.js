@@ -1,11 +1,5 @@
 const express = require("express");
 const router = express.Router();
-const { createClient } = require("@supabase/supabase-js");
-const { format } = require("date-fns");
-const { vi } = require("date-fns/locale");
-const { formatInTimeZone } = require("date-fns-tz");
-const path = require("path");
-const fs = require("fs").promises;
 const printService = require("../services/printService");
 const db = require("../utils/database");
 const { basicAuth } = require("../middlewares/auth");
@@ -18,17 +12,6 @@ const {
 } = require("../utils/responseHandler");
 const kiotvietController = require("../controllers/kiotvietController");
 const printController = require("../controllers/printController");
-
-// Create Supabase client
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
-
-// Format currency function
-const formatCurrency = (amount) => {
-  return new Intl.NumberFormat("vi-VN").format(amount);
-};
 
 /**
  * GET /print/jobs query params: print_agent_id
@@ -87,7 +70,7 @@ router.put("/jobs/:id", basicAuth, async (req, res) => {
     const { status } = req.body;
 
     if (!status) {
-      return badRequestError(res, "Missing status in request body");
+      return validationError(res, "Missing status in request body");
     }
 
     // Check if job exists
@@ -123,26 +106,7 @@ router.get("/kv-invoice", async (req, res) => {
       return errorResponse(res, "Invoice code is required", null, 400);
     }
 
-    // Test the database connection first
-    const { data: invoice } = await supabase
-      .from("kv_invoices")
-      .select("id, code")
-      .eq("code", code)
-      .single();
-
-    if (!invoice) {
-      console.error(`❌ Invoice ${code} not found in database`);
-      return errorResponse(
-        res,
-        `Invoice ${code} not found in database`,
-        null,
-        404
-      );
-    }
-
-    console.log(`✅ Invoice found in database: ${JSON.stringify(invoice)}`);
-
-    // Then attempt to generate the invoice print
+    // Generate the invoice print HTML
     const html = await printService.generateInvoicePrint(code);
     return htmlResponse(res, html);
   } catch (error) {
@@ -170,26 +134,7 @@ router.get("/label-product", async (req, res) => {
       return errorResponse(res, "Product code is required", null, 400);
     }
 
-    // Test the database connection first
-    const { data: product } = await supabase
-      .from("kv_products")
-      .select("id, code, name")
-      .eq("code", code)
-      .single();
-
-    if (!product) {
-      console.error(`❌ Product ${code} not found in database`);
-      return errorResponse(
-        res,
-        `Product ${code} not found in database`,
-        null,
-        404
-      );
-    }
-
-    console.log(`✅ Product found in database: ${JSON.stringify(product)}`);
-
-    // Then attempt to generate the product label
+    // Generate the product label HTML
     const html = await printService.generateProductLabelPrint(code, quantity);
     return htmlResponse(res, html);
   } catch (error) {

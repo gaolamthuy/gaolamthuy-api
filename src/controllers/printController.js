@@ -3,7 +3,6 @@ const fs = require("fs").promises;
 const { createClient } = require("@supabase/supabase-js");
 const Handlebars = require("handlebars");
 const { formatCurrency } = require("../utils/formatUtils");
-const sharp = require("sharp");
 
 // Create Supabase client
 const supabase = createClient(
@@ -215,8 +214,7 @@ exports.getPrintPriceTable = async (req, res) => {
   }
 };
 
-// Export other print-related controller functions here
-exports.getPrintPriceBoard = require("./kiotvietController").getPrintPriceBoard;
+// Note: getPrintPriceBoard is handled directly in kiotvietController
 
 /**
  * Get retail price table (no customer specific pricing)
