@@ -365,8 +365,8 @@ const sendToDiscord = async (transactionData, isTestTransaction) => {
     // Determine avatar URL based on transaction type
     const avatarUrl =
       transactionData.typeTrans === "com.mservice.momotransfer"
-        ? "https://github.com/gaolamthuy/unnamed-repo/blob/main/assets/momo-logo.png?raw=true"
-        : "https://github.com/gaolamthuy/unnamed-repo/blob/main/assets/vcb-logo.jpg?raw=true";
+        ? "https://raw.githubusercontent.com/gaolamthuy/staff/refs/heads/main/public/icon/momo.png"
+        : "https://raw.githubusercontent.com/gaolamthuy/staff/refs/heads/main/public/icon/vietcombank.png";
 
     // Determine username based on transaction type
     const username =
